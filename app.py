@@ -14,7 +14,7 @@ import pandas as pd
 import os
 import sys
 
-sys.path.insert(0, os.path.dirname(__file__))
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from pdf_parser import extract_text_from_pdf
 from claude_extractor import (
