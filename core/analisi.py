@@ -1,11 +1,8 @@
-"""
-Motore di analisi: calcola i valori effettivi del portafoglio e verifica i limiti.
-"""
 import pandas as pd
 import numpy as np
 
 
-# Mapping categorie IVASS → macro-categorie per confronto con limiti Reg.38
+# Mapping categorie IVASS -> macro-categorie per confronto con limiti Reg.38
 CATEGORIA_MAP = {
     # Titoli di Stato
     "1": "Titoli di Stato UE",
@@ -38,18 +35,15 @@ CATEGORIA_MAP = {
 
 COLONNE_VALORE = ["valore_mercato", "valore_bilancio"]
 
-
 def _get_valore_col(df: pd.DataFrame) -> str:
     for c in COLONNE_VALORE:
         if c in df.columns and df[c].notna().any():
             return c
     raise ValueError("Nessuna colonna valore trovata nel SHIP.")
 
-
 def calcola_totale(df: pd.DataFrame) -> float:
     col = _get_valore_col(df)
     return df[col].sum()
-
 
 def calcola_per_categoria(df: pd.DataFrame) -> pd.DataFrame:
     """Calcola valore e % per categoria IVASS."""
@@ -71,7 +65,6 @@ def calcola_per_categoria(df: pd.DataFrame) -> pd.DataFrame:
     grp = grp.sort_values("valore", ascending=False).reset_index(drop=True)
     return grp
 
-
 def calcola_per_emittente(df: pd.DataFrame) -> pd.DataFrame:
     """Calcola concentrazione per emittente."""
     col_val = _get_valore_col(df)
@@ -91,7 +84,6 @@ def calcola_per_emittente(df: pd.DataFrame) -> pd.DataFrame:
     grp["pct_portafoglio"] = grp["valore"] / totale * 100
     grp = grp.sort_values("valore", ascending=False).reset_index(drop=True)
     return grp
-
 
 def calcola_per_paese(df: pd.DataFrame) -> pd.DataFrame:
     """Calcola concentrazione per paese emittente."""
@@ -113,7 +105,6 @@ def calcola_per_paese(df: pd.DataFrame) -> pd.DataFrame:
     grp = grp.sort_values("valore", ascending=False).reset_index(drop=True)
     return grp
 
-
 def calcola_per_valuta(df: pd.DataFrame) -> pd.DataFrame:
     """Calcola esposizione per valuta."""
     col_val = _get_valore_col(df)
@@ -133,7 +124,6 @@ def calcola_per_valuta(df: pd.DataFrame) -> pd.DataFrame:
     grp["pct_portafoglio"] = grp["valore"] / totale * 100
     grp = grp.sort_values("valore", ascending=False).reset_index(drop=True)
     return grp
-
 
 def verifica_limiti(
     df_portafoglio: pd.DataFrame,
@@ -181,21 +171,21 @@ def verifica_limiti(
             lim_min = lim.get("limite_min_pct")
             lim_emit = lim.get("limite_emittente_pct")
             
-            esito = "✅ OK"
+            esito = "OK"
             scostamento = None
             
             if pct_effettiva is not None:
                 if lim_max is not None and pct_effettiva > lim_max:
-                    esito = "❌ SFORAMENTO MAX"
+                    esito = "SFORAMENTO MAX"
                     scostamento = pct_effettiva - lim_max
                 elif lim_min is not None and pct_effettiva < lim_min:
-                    esito = "⚠️ SOTTO MINIMO"
+                    esito = "SOTTO MINIMO"
                     scostamento = pct_effettiva - lim_min
                 elif lim_emit is not None and max_emit_pct is not None and max_emit_pct > lim_emit:
-                    esito = "❌ SFORAMENTO EMITTENTE"
+                    esito = "SFORAMENTO EMITTENTE"
                     scostamento = max_emit_pct - lim_emit
             else:
-                esito = "⬜ NON RILEVABILE"
+                esito = "NON RILEVABILE"
             
             rows.append({
                 "fonte": fonte,
