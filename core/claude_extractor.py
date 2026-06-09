@@ -79,6 +79,9 @@ def _call_claude(prompt: str, max_tokens: int = 4096) -> str:
 
 def _parse_json_safe(text: str):
     text = re.sub(r"```(?:json)?", "", text).strip().rstrip("`").strip()
+    match = re.search(r"(\[.*\]|\{.*\})", text, re.DOTALL)
+    if match:
+        text = match.group(1)
     return json.loads(text)
 
 def estrai_limiti_reg38(testo_pdf: str) -> list[dict]:
