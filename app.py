@@ -122,9 +122,9 @@ with st.sidebar:
                     st.session_state.limiti_regolamento = estrai_limiti_regolamento(testo)
                     st.session_state.info_gestione = estrai_info_gestione(testo)
                     n = len(st.session_state.limiti_regolamento)
-                    st.success(f"✅ Estratti {n} limiti dal regolamento")
+                    st.success(f"Estratti {n} limiti dal regolamento")
                     nome = st.session_state.info_gestione.get("nome_gestione", "—")
-                    st.info(f"📋 Gestione: **{nome}**")
+                    st.info(f"Gestione: **{nome}**")
                 except Exception as e:
                     st.error(f"Errore: {e}")
 
