@@ -16,14 +16,14 @@ import sys
 
 sys.path.insert(0, os.path.dirname(__file__))
 
-from core.pdf_parser import extract_text_from_pdf
-from core.claude_extractor import (
+from pdf_parser import extract_text_from_pdf
+from claude_extractor import (
     estrai_limiti_reg38,
     estrai_limiti_regolamento,
     estrai_info_gestione,
 )
-from core.ship_parser import load_ship, get_gestioni, filter_by_gestione
-from core.analisi import (
+from ship_parser import load_ship, get_gestioni, filter_by_gestione
+from analisi import (
     calcola_per_categoria,
     calcola_per_emittente,
     calcola_per_paese,
@@ -31,7 +31,7 @@ from core.analisi import (
     verifica_limiti,
     calcola_totale,
 )
-from core.excel_writer import genera_excel
+from excel_writer import genera_excel
 
 # Page config
 st.set_page_config(
