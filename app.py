@@ -91,7 +91,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # Header
-st.markdown('<div class="main-title">🏦 Analisi Limiti Gestioni & Fondi</div>', unsafe_allow_html=True)
+st.markdown('<div class="main-title">Analisi Limiti Gestioni & Fondi</div>', unsafe_allow_html=True)
 st.markdown('<div class="sub-title">Verifica limiti di investimento — Reg. IVASS n.38 + Regolamento Gestione</div>', unsafe_allow_html=True)
 
 # Session state init
