@@ -91,7 +91,7 @@ st.markdown("""
 
 # Header
 st.markdown('<div class="main-title">Analisi Limiti Gestioni & Fondi</div>', unsafe_allow_html=True)
-st.markdown('<div class="sub-title">Verifica limiti di investimento — Reg. IVASS n.38 + Regolamento Gestione</div>', unsafe_allow_html=True)
+st.markdown('<div class="sub-title">Verifica limiti di investimento - Reg. IVASS n.38 + Regolamento Gestione</div>', unsafe_allow_html=True)
 
 # Session state init
 for key in ["limiti_reg38", "limiti_regolamento", "info_gestione",
@@ -99,7 +99,7 @@ for key in ["limiti_reg38", "limiti_regolamento", "info_gestione",
     if key not in st.session_state:
         st.session_state[key] = None
 
-# SIDEBAR — Upload & Extraction
+# SIDEBAR - Upload & Extraction
 with st.sidebar:
     st.markdown("Caricamento File")
     st.divider()
@@ -123,7 +123,7 @@ with st.sidebar:
                     st.session_state.info_gestione = estrai_info_gestione(testo)
                     n = len(st.session_state.limiti_regolamento)
                     st.success(f"Estratti {n} limiti dal regolamento")
-                    nome = st.session_state.info_gestione.get("nome_gestione", "—")
+                    nome = st.session_state.info_gestione.get("nome_gestione", "-")
                     st.info(f"Gestione: **{nome}**")
                 except Exception as e:
                     st.error(f"Errore: {e}")
@@ -179,16 +179,16 @@ with st.sidebar:
 col_s1, col_s2, col_s3 = st.columns(3)
 with col_s1:
     ok_reg = st.session_state.limiti_regolamento is not None
-    st.markdown(f"{'OK' if ok_reg else 'KO'} Regolamento gestione — "
+    st.markdown(f"{'OK' if ok_reg else 'KO'} Regolamento gestione - "
                 f"{'**' + str(len(st.session_state.limiti_regolamento)) + ' limiti**' if ok_reg else '_non caricato_'}")
 with col_s2:
     ok_38 = st.session_state.limiti_reg38 is not None
-    st.markdown(f"{'OK' if ok_38 else 'KO'} Reg. IVASS n.38 — "
+    st.markdown(f"{'OK' if ok_38 else 'KO'} Reg. IVASS n.38 - "
                 f"{'**' + str(len(st.session_state.limiti_reg38)) + ' limiti**' if ok_38 else '_non caricato_'}")
 with col_s3:
     ok_ship = st.session_state.df_ship is not None
     n_pos = len(st.session_state.df_ship) if ok_ship else 0
-    st.markdown(f"{'OK' if ok_ship else 'KO'} SHIP portafoglio — "
+    st.markdown(f"{'OK' if ok_ship else 'KO'} SHIP portafoglio - "
                 f"{'**' + str(n_pos) + ' posizioni**' if ok_ship else '_non caricato_'}")
 
 st.divider()
@@ -215,8 +215,8 @@ if st.session_state.gestioni_list:
         totale = df_sel[col_val].sum()
     
     n_isin = df_sel["isin"].nunique() if "isin" in df_sel.columns else len(df_sel)
-    n_emit = df_sel["denominazione_emittente"].nunique() if "denominazione_emittente" in df_sel.columns else "—"
-    n_paesi = df_sel["paese_emittente"].nunique() if "paese_emittente" in df_sel.columns else "—"
+    n_emit = df_sel["denominazione_emittente"].nunique() if "denominazione_emittente" in df_sel.columns else "-"
+    n_paesi = df_sel["paese_emittente"].nunique() if "paese_emittente" in df_sel.columns else "-"
     
     with col_k1:
         st.metric("Valore Portafoglio", f"€ {totale:,.0f}")
@@ -306,7 +306,7 @@ if st.session_state.gestioni_list:
                 ("Limiti_Regolamento_Raw", "Limiti estratti dal Regolamento"),
             ]
             for sheet, desc in sheets_info:
-                st.markdown(f"- **{sheet}** — {desc}")
+                st.markdown(f"- **{sheet}** - {desc}")
 
 else:
     st.info("Carica i file nella sidebar per iniziare l'analisi.")
