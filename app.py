@@ -141,7 +141,7 @@ with st.sidebar:
     )
 
     if pdf_reg38:
-        if st.button("🔍 Estrai limiti Reg. 38", use_container_width=True):
+        if st.button("Estrai limiti Reg. 38", use_container_width=True):
             with st.spinner("Analisi Regolamento IVASS n.38 con Claude AI..."):
                 try:
                     testo = extract_text_from_pdf(pdf_reg38.read())
