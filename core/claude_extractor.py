@@ -3,7 +3,8 @@ import json
 import re
 
 client = anthropic.Anthropic()
-MODEL = "claude-opus-4-6"
+MODEL = "claude-sonnet-4"
+
 
 PROMPT_LIMITI_REG38 = """Sei un esperto di normativa assicurativa italiana. 
 Analizza il testo del Regolamento IVASS n.38 fornito ed estrai TUTTI i limiti quantitativi 
