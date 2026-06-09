@@ -27,10 +27,10 @@ pip install -r requirements.txt
 ## Avvio
 
 ```bash
-# Imposta la chiave API Anthropic
-export ANTHROPIC_API_KEY="sk-ant-..."
+# Impostazione chiave API
+export API_KEY="sk-ant-..."
 
-# Avvia l'app
+# Avvio dell'app
 streamlit run app.py
 ```
 
