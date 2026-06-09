@@ -1,7 +1,4 @@
-"""
-Estrae testo da PDF usando PyMuPDF.
-"""
-import fitz  # PyMuPDF
+import fitz
 import io
 
 
