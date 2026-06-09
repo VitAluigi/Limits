@@ -73,7 +73,7 @@ TESTO:
 """
 
 def _call_claude(prompt: str, max_tokens: int = 4096) -> str:
-    msg = client.messages.create(
+    msg = _get_client().messages.create(
         model=MODEL,
         max_tokens=max_tokens,
         messages=[{"role": "user", "content": prompt}]
