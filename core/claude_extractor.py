@@ -2,7 +2,7 @@ import anthropic
 import json
 import re
 import streamlit as st
-client = anthropic.Anthropic(api_key=st.secrets["CLAUDE_API_KEY"])
+
 MODEL = "claude-sonnet-4-20250514"
 
 def _get_client():
