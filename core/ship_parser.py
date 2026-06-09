@@ -1,11 +1,7 @@
-"""
-Parser per file SHIP (Segnalazione Holdings Investimenti Polizze) in formato Excel IVASS.
-"""
 import pandas as pd
 import io
 
-
-# Colonne standard SHIP attese
+# Colonne standard db attese
 SHIP_COLS_MAP = {
     # Identificativi
     "Codice ABI / Codice fiscale impresa": "codice_impresa",
@@ -39,13 +35,7 @@ SHIP_COLS_MAP = {
 
 
 def load_ship(file_bytes: bytes) -> pd.DataFrame:
-    """
-    Carica un file SHIP Excel e restituisce un DataFrame normalizzato.
-    Gestisce formati con intestazioni su righe multiple (comune nei SHIP).
-    """
     xls = pd.ExcelFile(io.BytesIO(file_bytes))
-    
-    # Cerca il foglio principale (primo foglio non vuoto)
     df_raw = None
     sheet_used = None
     for sheet in xls.sheet_names:
@@ -57,8 +47,7 @@ def load_ship(file_bytes: bytes) -> pd.DataFrame:
     
     if df_raw is None:
         raise ValueError("Nessun foglio dati trovato nel file SHIP.")
-    
-    # Trova la riga di intestazione (cerca quella con più colonne non-null)
+
     header_row = 0
     max_non_null = 0
     for i in range(min(10, len(df_raw))):
@@ -68,25 +57,16 @@ def load_ship(file_bytes: bytes) -> pd.DataFrame:
             header_row = i
     
     df = pd.read_excel(xls, sheet_name=sheet_used, header=header_row)
-    
-    # Normalizza nomi colonne
     df.columns = [str(c).strip() for c in df.columns]
-    
-    # Rinomina colonne standard
     rename = {}
     for orig, norm in SHIP_COLS_MAP.items():
-        # Ricerca flessibile (case-insensitive, partial match)
         for col in df.columns:
             if orig.lower() in col.lower() or col.lower() in orig.lower():
                 rename[col] = norm
                 break
     
     df = df.rename(columns=rename)
-    
-    # Rimuovi righe completamente vuote
     df = df.dropna(how="all").reset_index(drop=True)
-    
-    # Converti colonne numeriche
     for col in ["valore_bilancio", "valore_mercato", "quantita"]:
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors="coerce")
@@ -114,7 +94,6 @@ def get_gestioni(df: pd.DataFrame) -> list[str]:
 
 
 def filter_by_gestione(df: pd.DataFrame, gestione: str) -> pd.DataFrame:
-    """Filtra il DataFrame per gestione selezionata."""
     if gestione == "(tutte)":
         return df
     for col in ["denominazione_gestione", "codice_gestione"]:
