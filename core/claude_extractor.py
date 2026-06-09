@@ -3,7 +3,7 @@ import json
 import re
 
 client = anthropic.Anthropic()
-MODEL = "claude-sonnet-4"
+MODEL = "claude-sonnet-4-20250514"
 
 
 PROMPT_LIMITI_REG38 = """Sei un esperto di normativa assicurativa italiana. 
