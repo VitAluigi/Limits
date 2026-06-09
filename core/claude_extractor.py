@@ -1,14 +1,9 @@
-"""
-Usa Claude API per estrarre limiti strutturati dai PDF.
-"""
 import anthropic
 import json
 import re
 
-
 client = anthropic.Anthropic()
-MODEL = "claude-sonnet-4-20250514"
-
+MODEL = "claude-opus-4-6"
 
 PROMPT_LIMITI_REG38 = """Sei un esperto di normativa assicurativa italiana. 
 Analizza il testo del Regolamento IVASS n.38 fornito ed estrai TUTTI i limiti quantitativi 
@@ -74,7 +69,6 @@ TESTO:
 {testo}
 """
 
-
 def _call_claude(prompt: str, max_tokens: int = 4096) -> str:
     msg = client.messages.create(
         model=MODEL,
@@ -83,27 +77,21 @@ def _call_claude(prompt: str, max_tokens: int = 4096) -> str:
     )
     return msg.content[0].text.strip()
 
-
 def _parse_json_safe(text: str):
-    # Rimuove eventuali backtick markdown
     text = re.sub(r"```(?:json)?", "", text).strip().rstrip("`").strip()
     return json.loads(text)
 
-
 def estrai_limiti_reg38(testo_pdf: str) -> list[dict]:
     """Estrae limiti dal Reg. IVASS n.38."""
-    # Tronca se troppo lungo (mantieni parti rilevanti)
     testo = testo_pdf[:80000]
     risposta = _call_claude(PROMPT_LIMITI_REG38.format(testo=testo), max_tokens=4096)
     return _parse_json_safe(risposta)
-
 
 def estrai_limiti_regolamento(testo_pdf: str) -> list[dict]:
     """Estrae limiti dal regolamento della gestione."""
     testo = testo_pdf[:80000]
     risposta = _call_claude(PROMPT_LIMITI_REGOLAMENTO.format(testo=testo), max_tokens=4096)
     return _parse_json_safe(risposta)
-
 
 def estrai_info_gestione(testo_pdf: str) -> dict:
     """Estrae nome e tipo della gestione dal regolamento."""
