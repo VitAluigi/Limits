@@ -89,9 +89,13 @@ def _parse_json_safe(text: str):
 
 def estrai_limiti_reg38(testo_pdf: str) -> list[dict]:
     testo = testo_pdf[:80000]
-    risposta = _call_claude(PROMPT_LIMITI_REG38.format(testo=testo), max_tokens=4096)
-    st.text(risposta[:1000])
-    return _parse_json_safe(risposta)
+    try:
+        risposta = _call_claude(PROMPT_LIMITI_REG38.format(testo=testo), max_tokens=4096)
+        st.write("Risposta grezza:", risposta[:500])
+        return _parse_json_safe(risposta)
+    except Exception as e:
+        st.error(f"Errore dettagliato: {type(e).__name__}: {e}")
+        raise
 
 def estrai_limiti_regolamento(testo_pdf: str) -> list[dict]:
     """Estrae limiti dal regolamento della gestione."""
