@@ -3,7 +3,7 @@ import json
 import re
 import streamlit as st
 
-MODEL = "claude-sonnet-4-20250514"
+MODEL = "claude-opus-4-6"
 
 def _get_client():
     return anthropic.Anthropic(api_key=st.secrets["CLAUDE_API_KEY"])
