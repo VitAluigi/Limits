@@ -5,6 +5,8 @@ import streamlit as st
 client = anthropic.Anthropic(api_key=st.secrets["CLAUDE_API_KEY"])
 MODEL = "claude-sonnet-4-20250514"
 
+def _get_client():
+    return anthropic.Anthropic(api_key=st.secrets["CLAUDE_API_KEY"])
 
 PROMPT_LIMITI_REG38 = """Sei un esperto di normativa assicurativa italiana. 
 Analizza il testo del Regolamento IVASS n.38 fornito ed estrai TUTTI i limiti quantitativi 
