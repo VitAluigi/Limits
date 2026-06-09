@@ -154,9 +154,9 @@ with st.sidebar:
     st.divider()
 
     # Step 3: db Excel
-    st.markdown("**Portafoglio SHIP Excel**")
+    st.markdown("**Portafoglio**")
     ship_file = st.file_uploader(
-        "Carica file SHIP (.xlsx)",
+        "Carica file (.xlsx)",
         type=["xlsx", "xls"],
         key="upload_ship",
         label_visibility="collapsed",
@@ -164,7 +164,7 @@ with st.sidebar:
 
     if ship_file:
         if st.button("Carica portafoglio", use_container_width=True):
-            with st.spinner("Parsing SHIP..."):
+            with st.spinner("Parsing sb..."):
                 try:
                     df = load_ship(ship_file.read())
                     st.session_state.df_ship = df
@@ -172,7 +172,7 @@ with st.sidebar:
                     st.success(f"{len(df):,} posizioni caricate")
                     st.info(f"{len(st.session_state.gestioni_list)} gestioni trovate")
                 except Exception as e:
-                    st.error(f"Errore parsing SHIP: {e}")
+                    st.error(f"Errore parsing db: {e}")
 
 # MAIN - Selezione gestione + Analisi
 # Stato caricamento
@@ -188,7 +188,7 @@ with col_s2:
 with col_s3:
     ok_ship = st.session_state.df_ship is not None
     n_pos = len(st.session_state.df_ship) if ok_ship else 0
-    st.markdown(f"{'OK' if ok_ship else 'KO'} SHIP portafoglio - "
+    st.markdown(f"{'OK' if ok_ship else 'KO'} portafoglio - "
                 f"{'**' + str(n_pos) + ' posizioni**' if ok_ship else '_non caricato_'}")
 
 st.divider()
@@ -295,7 +295,7 @@ if st.session_state.gestioni_list:
             st.markdown("Sheet generati nell'Excel:")
             sheets_info = [
                 ("Cover", "Riepilogo metadata gestione"),
-                ("DB_Grezzo", "Portafoglio SHIP filtrato originale"),
+                ("DB_Grezzo", "Portafoglio filtrato originale"),
                 ("Analisi_Categorie", "Composizione % per categoria IVASS"),
                 ("Analisi_Emittenti", "Concentrazione per emittente"),
                 ("Analisi_Paesi", "Esposizione per paese"),
