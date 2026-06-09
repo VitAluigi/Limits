@@ -36,7 +36,6 @@ from core.excel_writer import genera_excel
 # Page config
 st.set_page_config(
     page_title="Analisi Limiti Gestioni",
-    page_icon="🏦",
     layout="wide",
     initial_sidebar_state="expanded",
 )
