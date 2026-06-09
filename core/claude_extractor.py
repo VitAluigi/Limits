@@ -3,7 +3,7 @@ import json
 import re
 import streamlit as st
 
-MODEL = "claude-opus-4-6"
+MODEL = "claude-sonnet-4-20250514"
 
 def _get_client():
     return anthropic.Anthropic(api_key=st.secrets["CLAUDE_API_KEY"])
@@ -88,9 +88,9 @@ def _parse_json_safe(text: str):
     return json.loads(text)
 
 def estrai_limiti_reg38(testo_pdf: str) -> list[dict]:
-    """Estrae limiti dal Reg. IVASS n.38."""
     testo = testo_pdf[:80000]
     risposta = _call_claude(PROMPT_LIMITI_REG38.format(testo=testo), max_tokens=4096)
+    st.text(risposta[:1000])
     return _parse_json_safe(risposta)
 
 def estrai_limiti_regolamento(testo_pdf: str) -> list[dict]:
