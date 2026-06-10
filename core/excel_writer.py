@@ -17,9 +17,9 @@ from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 import datetime
 
-# Palette colori
-C_KPMG_BLUE    = "00338D"   # RGB(0, 51, 141)  — KPMG blu
-C_KPMG_BLUE_LT = "4472C4"   # blu medio per DB_Grezzo
+# ── Palette colori ────────────────────────────────────────────────────────────
+C_KPMG_BLUE    = "00338D"
+C_KPMG_BLUE_LT = "4472C4"
 C_WHITE        = "FFFFFF"
 C_BLACK        = "000000"
 C_STRIPE       = "F2F2F2"
@@ -28,7 +28,7 @@ C_WARN         = "FFEB9C"
 C_ERR          = "FFC7CE"
 C_BORDER       = "BFBFBF"
 
-# Font names
+# ── Font names ────────────────────────────────────────────────────────────────
 F_LOGO   = "KPMG Logo"
 F_BOLD   = "KPMG Bold"
 F_BODY   = "Arial"
@@ -74,7 +74,7 @@ def _kpmg_header(ws, sheet_title: str):
 def _table_header_row(ws, row_idx: int, columns, header_bg=C_KPMG_BLUE):
     """Scrive una riga di intestazione tabella KPMG: sfondo blu, font Arial 8 bianco."""
     ws.row_dimensions[row_idx].height = 19
-    for j, col in enumerate(columns, 2):          # parte da colonna B
+    for j, col in enumerate(columns, 2):
         cell = ws.cell(row_idx, j, str(col))
         cell.font      = Font(name=F_BODY, size=SZ_BODY, bold=True, color=C_WHITE)
         cell.fill      = PatternFill("solid", start_color=header_bg)
@@ -172,33 +172,36 @@ def _write_verifica_sheet(ws, df: pd.DataFrame, sheet_title: str):
 
 def _write_db_grezzo(ws, df: pd.DataFrame, nome_gestione: str):
     """
-    DB Grezzo: unico sheet senza header KPMG — intestazione semplice blu scuro
-    per permettere di gestire le molte colonne senza fronzoli.
+    DB Grezzo: sheet completamente blank — solo dati grezzi, nessun header KPMG,
+    nessun titolo, nessuna formattazione extra. Intestazione in riga 1, dati da riga 2.
     """
-    ws.sheet_view.showGridLines = False
-    ws.column_dimensions["A"].width = 2
-
-    # Titolo riga 1
-    ws.merge_cells(start_row=1, start_column=2,
-                   end_row=1, end_column=max(len(df.columns) + 1, 3))
-    t = ws.cell(1, 2, f"DB GREZZO — {nome_gestione}")
-    t.font      = Font(name=F_BOLD, size=10, bold=True, color=C_WHITE)
-    t.fill      = PatternFill("solid", start_color=C_KPMG_BLUE)
-    t.alignment = Alignment(horizontal="left", vertical="center")
-    ws.row_dimensions[1].height = 18
-
     if df.empty:
         return
 
-    # Intestazione colonne → riga 2
-    _table_header_row(ws, 2, df.columns)
+    # Riga 1 — intestazione colonne, plain
+    for j, col in enumerate(df.columns, 1):
+        cell = ws.cell(1, j, str(col))
+        cell.font      = Font(name=F_BODY, size=SZ_BODY, bold=True, color=C_BLACK)
+        cell.alignment = Alignment(vertical="center", wrap_text=False)
 
-    # Dati
-    for i, row in enumerate(df.itertuples(index=False), 3):
-        _table_data_row(ws, i, list(row), list(df.columns), stripe=(i % 2 == 0))
+    # Righe dati — valori puri, nessun colore
+    for i, row in enumerate(df.itertuples(index=False), 2):
+        for j, val in enumerate(list(row), 1):
+            cell = ws.cell(i, j)
+            cell.value     = val
+            cell.font      = Font(name=F_BODY, size=SZ_BODY, color=C_BLACK)
+            cell.alignment = Alignment(vertical="center")
 
-    _auto_width(ws)
+    # Auto width minimale
+    for col in ws.columns:
+        width = 8
+        for cell in col:
+            if cell.value:
+                width = max(width, min(len(str(cell.value)) + 2, 40))
+        ws.column_dimensions[get_column_letter(col[0].column)].width = width
 
+
+# ══════════════════════════════════════════════════════════════════════════════
 def genera_excel(
     df_portafoglio: pd.DataFrame,
     df_cat:         pd.DataFrame,
@@ -216,7 +219,7 @@ def genera_excel(
 
     wb = Workbook()
 
-    # 0. Cover
+    # ── 0. Cover ──────────────────────────────────────────────────────────────
     ws_cover = wb.active
     ws_cover.title = "Cover"
     ws_cover.sheet_view.showGridLines = False
@@ -266,43 +269,43 @@ def genera_excel(
         vl.alignment  = Alignment(vertical="center")
         ws_cover.row_dimensions[r].height = 16
 
-    # 1. DB Grezzo
+    # ── 1. DB Grezzo ──────────────────────────────────────────────────────────
     ws_db = wb.create_sheet("DB_Grezzo")
     _write_db_grezzo(ws_db, df_portafoglio, nome_gestione)
 
-    # 2. Analisi Categorie
+    # ── 2. Analisi Categorie ──────────────────────────────────────────────────
     if not df_cat.empty:
         ws_cat = wb.create_sheet("Analisi_Categorie")
         _write_kpmg_sheet(ws_cat, df_cat, "Composizione per categoria IVASS / CIC")
 
-    # 3. Analisi Emittenti
+    # ── 3. Analisi Emittenti ─────────────────────────────────────────────────
     if not df_emit.empty:
         ws_emit = wb.create_sheet("Analisi_Emittenti")
         _write_kpmg_sheet(ws_emit, df_emit, "Concentrazione per emittente")
 
-    # 4. Analisi Paesi
+    # ── 4. Analisi Paesi ─────────────────────────────────────────────────────
     if not df_paesi.empty:
         ws_paesi = wb.create_sheet("Analisi_Paesi")
         _write_kpmg_sheet(ws_paesi, df_paesi, "Esposizione per paese")
 
-    # 5. Analisi Valute
+    # ── 5. Analisi Valute ────────────────────────────────────────────────────
     if not df_valute.empty:
         ws_val = wb.create_sheet("Analisi_Valute")
         _write_kpmg_sheet(ws_val, df_valute, "Esposizione per valuta")
 
-    # 6. Verifica Normativa IVASS
+    # ── 6. Verifica Normativa IVASS ───────────────────────────────────────────
     if not df_verifica_reg38.empty:
         ws_v38 = wb.create_sheet("Verifica_Reg38")
         _write_verifica_sheet(ws_v38, df_verifica_reg38,
                               "Verifica limiti — Normativa IVASS")
 
-    # 7. Verifica Regolamento Gestione
+    # ── 7. Verifica Regolamento Gestione ─────────────────────────────────────
     if not df_verifica_reg.empty:
         ws_vreg = wb.create_sheet("Verifica_Regolamento")
         _write_verifica_sheet(ws_vreg, df_verifica_reg,
                               "Verifica limiti — Regolamento gestione")
 
-    # 8. Limiti Raw
+    # ── 8. Limiti Raw ─────────────────────────────────────────────────────────
     if limiti_reg38:
         ws_lr38 = wb.create_sheet("Limiti_Reg38_Raw")
         _write_kpmg_sheet(ws_lr38, pd.DataFrame(limiti_reg38),
@@ -313,7 +316,7 @@ def genera_excel(
         _write_kpmg_sheet(ws_lreg, pd.DataFrame(limiti_regolamento),
                           "Limiti estratti — Regolamento gestione")
 
-    # Output
+    # ── Output ────────────────────────────────────────────────────────────────
     buf = io.BytesIO()
     wb.save(buf)
     buf.seek(0)
