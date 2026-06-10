@@ -223,14 +223,14 @@ if st.session_state.gestioni_list:
         st.dataframe(df_sel.head(50), use_container_width=True, height=300)
     
     # Genera Excel
-    st.markdown("### 📥 Genera File di Analisi")
+    st.markdown("Genera File di Analisi")
     
     can_generate = ok_ship
     if not ok_reg and not ok_38:
         st.warning("Carica almeno uno tra il Regolamento Gestione e il Reg. IVASS n.38 per la verifica dei limiti.")
     
     if can_generate:
-        if st.button("⚙️ GENERA EXCEL", type="primary", use_container_width=False):
+        if st.button("GENERA EXCEL", type="primary", use_container_width=False):
             with st.spinner("Calcolo analisi e generazione Excel..."):
                 try:
                     limiti_r38 = st.session_state.limiti_reg38 or []
