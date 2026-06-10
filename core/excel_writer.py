@@ -1,323 +1,329 @@
-"""
-Genera l'Excel di output con:
-- Sheet "DB_Grezzo": portafoglio filtrato originale
-- Sheet "Analisi_Categorie": composizione per categoria
-- Sheet "Analisi_Emittenti": concentrazione emittenti
-- Sheet "Analisi_Paesi": esposizione per paese
-- Sheet "Analisi_Valute": esposizione per valuta
-- Sheet "Verifica_Reg38": check normativa IVASS
-- Sheet "Verifica_Regolamento": check regolamento gestione
-- Sheet "Limiti_Reg38_Raw": limiti estratti da normativa IVASS
-- Sheet "Limiti_Regolamento_Raw": limiti estratti dal regolamento
-"""
-import io
 import pandas as pd
-from openpyxl import Workbook
-from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
-from openpyxl.utils import get_column_letter
-import datetime
 
-# ── Palette colori ────────────────────────────────────────────────────────────
-C_KPMG_BLUE    = "00338D"
-C_KPMG_BLUE_LT = "4472C4"
-C_WHITE        = "FFFFFF"
-C_BLACK        = "000000"
-C_STRIPE       = "F2F2F2"
-C_OK           = "C6EFCE"
-C_WARN         = "FFEB9C"
-C_ERR          = "FFC7CE"
-C_BORDER       = "BFBFBF"
+CATEGORIA_REGOLAMENTO = {
+    # Obbligazionario
+    "obbligazionari": [
+        # Nomi SAP reali
+        "Govt bonds >1 year <10 years",
+        "Govt bonds >10 years",
+        "Govt bonds <1 year",
+        "Ordinary bond",
+        "Subordinated bond",
+        "Infra Bonds",
+        "Index Linked Bonds",
+        "Mortgage Backed Security",
+        "Asset Backed Security",
+        "Collateralized Debt Obligation (CDO)",
+        "Perpetual Notes",
+        "Credit linked note",
+        "Separated Trading of Registered Interest and Principal (STRI",
+        # Nomi CIC inglese (dummy/altri sistemi)
+        "Government Bonds EU",
+        "Government Bonds non-EU",
+        "Corporate Bonds listed",
+        "Corporate Bonds unlisted",
+        "Covered bond",
+        "Covered Bonds",
+        "Cash and deposits",   # incluso nell'obbligazionario per GESAV
+        "Money market",
+    ],
+    # Azionario
+    "azionari": [
+        "Share",
+        "Private Equities",
+        "Real Estate Shares",
+        "Equities listed",
+        "Equities unlisted",
+        "Equity",
+    ],
+    # Immobiliare
+    "immobiliari": [
+        "Real Estate Shares",
+        "Real Estate fund",
+        "Real Estate",
+        "Real estate",
+    ],
+    # Fondi / OICR / altri strumenti finanziari
+    "altri strumenti": [
+        "Fixed Income fund",
+        "Private equity fund",
+        "Mixed fund",
+        "Hedge fund",
+        "Real Estate fund",
+        "Equity fund",
+        "Money market fund",
+        "Commodity fund",
+        "UCITS funds",
+        "AIF",
+        "UCITS",
+        "Fund",
+    ],
+    # Liquidità / depositi
+    "liquidità": [
+        "Money market fund",
+        "Cash and deposits",
+        "Cash",
+        "Deposit",
+    ],
+    # Prestiti / finanziamenti
+    "prestiti": [
+        "Loan",
+        "Infra Loans",
+        "Loans",
+    ],
+    # Derivati
+    "derivati": [
+        "Credit Default Swap (CDS)",
+        "Interest rate swap (IRS)",
+        "FX Forward",
+        "OTC Currency Option Call",
+        "OTC Currency Option Put",
+        "Asset Swap",
+        "TRS Nominal",
+        "OTC Payer-Swaption (Put)",
+        "Cross-curr.int.rate swap (CCS)",
+        "OTC Receiver-Swaption (Call)",
+        "OTC Index Option Call",
+        "OTC Index Option Put",
+        "Securities  Forward",
+    ],
+}
 
-# ── Font names ────────────────────────────────────────────────────────────────
-F_LOGO   = "KPMG Logo"
-F_BOLD   = "KPMG Bold"
-F_BODY   = "Arial"
-SZ_HEAD  = 14
-SZ_BODY  = 8
+# Classificazioni da escludere / non considerare ai fini del calcolo limiti
+# (derivati, repo, strumenti fuori bilancio, voci P&L)
+NOT_ASSIGNED_PRODUCT_TYPES = {
+    "Repurchase Agreement",
+    "Other P/L Items",
+    "Repo Collateral Margin Account",
+    "Credit Default Swap (CDS)",
+    "Securities  Forward",
+    "FX Forward",
+    "OTC Currency Option Call",
+    "OTC Currency Option Put",
+    "Interest rate swap (IRS)",
+    "OTC Index Option Put",
+    "3rd party assets - OTCs",
+    "TRS Nominal",
+    "OTC Payer-Swaption (Put)",
+    "Cross-curr.int.rate swap (CCS)",
+    "OTC Receiver-Swaption (Call)",
+    "OTC Index Option Call",
+    "Asset Swap",
+    "SPV",
+    "Asset Swap (Spanish)",
+    "Deposit Swap",
+    "Credit Linked Deposit",
+    "Irregular Fix-to-Fix Swap",
+    "Cash",
+}
+
+COLONNE_VALORE = ["valore_mercato", "valore_bilancio"]
+
+COLS_CLASS = ["sottocategoria_ivass", "Security Classification Name",
+              "CIC Classification Name", "categoria_ivass"]
+COLS_PROD = ["tipo_prodotto", "Product Type Name"]
 
 
-def _thin_border():
-    s = Side(style="thin", color=C_BORDER)
-    return Border(left=s, right=s, top=s, bottom=s)
+def _get_valore_col(df: pd.DataFrame) -> str:
+    for c in COLONNE_VALORE:
+        if c in df.columns and df[c].notna().any():
+            return c
+    raise ValueError("Nessuna colonna valore trovata nel SHIP.")
 
 
-def _kpmg_header(ws, sheet_title: str):
+def _get_class_col(df: pd.DataFrame):
+    for c in COLS_CLASS:
+        if c in df.columns:
+            return c
+    return None
+
+
+def _get_prod_col(df: pd.DataFrame):
+    for c in COLS_PROD:
+        if c in df.columns:
+            return c
+    return None
+
+
+def _is_not_assigned(class_val: str, prod_val: str) -> bool:
+    """True se la riga è un derivato/repo/cash → esclusa dal calcolo limiti."""
+    if str(class_val).strip().lower() == "not assigned":
+        return str(prod_val).strip() in NOT_ASSIGNED_PRODUCT_TYPES
+    return False
+
+
+def _match_categoria(class_val: str, prod_val: str, categoria_str: str) -> bool:
     """
-    Scrive l'intestazione KPMG standard:
-      B2 -> "KPMG" in KPMG Logo 14 blu KPMG
-      B3 -> sheet_title in KPMG Bold 14 blu KPMG
-    Nasconde griglia e imposta zoom 100%.
+    Ritorna True se (Security Classification Name, Product Type Name)
+    rientrano nella macro-categoria testuale del regolamento.
     """
-    ws.sheet_view.showGridLines = False
+    cat_lower = categoria_str.lower().strip()
+    class_str = str(class_val).strip()
 
-    # B2 — logo KPMG
-    c2 = ws["B2"]
-    c2.value = "kpmg"
-    c2.font = Font(name=F_LOGO, size=SZ_HEAD, bold=False, color=C_KPMG_BLUE)
-    c2.alignment = Alignment(horizontal="left", vertical="center")
-    ws.row_dimensions[2].height = 20
+    for kw, scn_list in CATEGORIA_REGOLAMENTO.items():
+        if kw in cat_lower:
+            if class_str in scn_list:
+                return True
 
-    # B3 — titolo analisi
-    c3 = ws["B3"]
-    c3.value = sheet_title
-    c3.font = Font(name=F_BOLD, size=SZ_HEAD, bold=True, color=C_KPMG_BLUE)
-    c3.alignment = Alignment(horizontal="left", vertical="center")
-    ws.row_dimensions[3].height = 20
+    if cat_lower in class_str.lower() or class_str.lower() in cat_lower:
+        return True
 
-    # riga 4 — spazio
-    ws.row_dimensions[4].height = 6
-
-    # colonna A — margine sinistro stretto
-    ws.column_dimensions["A"].width = 2
+    return False
 
 
-def _table_header_row(ws, row_idx: int, columns, header_bg=C_KPMG_BLUE):
-    """Scrive una riga di intestazione tabella KPMG: sfondo blu, font Arial 8 bianco."""
-    ws.row_dimensions[row_idx].height = 19
-    for j, col in enumerate(columns, 2):
-        cell = ws.cell(row_idx, j, str(col))
-        cell.font      = Font(name=F_BODY, size=SZ_BODY, bold=True, color=C_WHITE)
-        cell.fill      = PatternFill("solid", start_color=header_bg)
-        cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
-        cell.border    = _thin_border()
+def _pct_per_categoria(df: pd.DataFrame, col_val: str, col_class: str,
+                       col_prod, categoria_str: str) -> float:
+    """% del portafoglio che matcha la categoria testuale del regolamento."""
+    totale = df[col_val].sum()
+    if totale == 0:
+        return 0.0
+
+    mask = df.apply(
+        lambda r: _match_categoria(
+            r[col_class],
+            r[col_prod] if col_prod else "",
+            categoria_str
+        ), axis=1
+    )
+    return float(df.loc[mask, col_val].sum() / totale * 100)
 
 
-def _table_data_row(ws, row_idx: int, values, columns, stripe=False):
-    """Scrive una riga dati tabella KPMG: font Arial 8 nero, altezza 12."""
-    ws.row_dimensions[row_idx].height = 12
-    bg = C_STRIPE if stripe else C_WHITE
-    for j, (val, col_name) in enumerate(zip(values, columns), 2):
-        cell = ws.cell(row_idx, j)
-        cell.value     = val
-        cell.font      = Font(name=F_BODY, size=SZ_BODY, color=C_BLACK)
-        cell.alignment = Alignment(vertical="center")
-        cell.border    = _thin_border()
-        cell.fill      = PatternFill("solid", start_color=bg)
-        # Formato numerico
-        if any(k in col_name.lower() for k in ["pct", "%"]):
-            cell.number_format = '0.00"%"'
-        elif any(k in col_name.lower() for k in ["valore", "mercato", "bilancio",
-                                                   "nominale", "acquisto", "rateo"]):
-            cell.number_format = '#,##0.00'
+def calcola_totale(df: pd.DataFrame) -> float:
+    return df[_get_valore_col(df)].sum()
 
 
-def _auto_width(ws, start_col=2, min_w=8, max_w=45):
-    for col in ws.iter_cols(min_col=start_col):
-        width = min_w
-        for cell in col:
-            if cell.value:
-                width = max(width, min(len(str(cell.value)) + 2, max_w))
-        ws.column_dimensions[get_column_letter(col[0].column)].width = width
+def calcola_per_categoria(df: pd.DataFrame) -> pd.DataFrame:
+    col_val = _get_valore_col(df)
+    col_class = _get_class_col(df)
+    totale = df[col_val].sum()
+
+    if col_class is None:
+        return pd.DataFrame()
+
+    grp = df.groupby(col_class)[col_val].sum().reset_index()
+    grp.columns = ["categoria_ivass", "valore"]
+    grp["pct_portafoglio"] = grp["valore"] / totale * 100
+    grp = grp.sort_values("valore", ascending=False).reset_index(drop=True)
+    return grp
 
 
-def _write_kpmg_sheet(ws, df: pd.DataFrame, sheet_title: str,
-                      header_bg=C_KPMG_BLUE):
-    """
-    Scrive un DataFrame in formato KPMG:
-      B2 = KPMG logo, B3 = titolo, tabella da B5.
-    """
-    _kpmg_header(ws, sheet_title)
-
-    if df.empty:
-        ws["B5"].value = "Nessun dato disponibile."
-        ws["B5"].font  = Font(name=F_BODY, size=SZ_BODY, color=C_BLACK)
-        return
-
-    _table_header_row(ws, 5, df.columns, header_bg)
-
-    for i, row in enumerate(df.itertuples(index=False), 6):
-        _table_data_row(ws, i, list(row), list(df.columns), stripe=(i % 2 == 0))
-
-    _auto_width(ws)
+def calcola_per_emittente(df: pd.DataFrame) -> pd.DataFrame:
+    col_val = _get_valore_col(df)
+    totale = df[col_val].sum()
+    col_emit = None
+    for c in ["denominazione_emittente", "Denominazione emittente", "lei_emittente"]:
+        if c in df.columns:
+            col_emit = c
+            break
+    if col_emit is None:
+        return pd.DataFrame()
+    grp = df.groupby(col_emit)[col_val].sum().reset_index()
+    grp.columns = ["emittente", "valore"]
+    grp["pct_portafoglio"] = grp["valore"] / totale * 100
+    return grp.sort_values("valore", ascending=False).reset_index(drop=True)
 
 
-def _write_verifica_sheet(ws, df: pd.DataFrame, sheet_title: str):
-    """
-    Sheet di verifica limiti con semaforo colorato.
-    Stessa struttura KPMG ma le righe dati cambiano colore in base all'esito.
-    """
-    _kpmg_header(ws, sheet_title)
-
-    if df.empty:
-        ws["B5"].value = "Nessun dato disponibile."
-        ws["B5"].font  = Font(name=F_BODY, size=SZ_BODY, color=C_BLACK)
-        return
-
-    _table_header_row(ws, 5, df.columns)
-
-    ESITO_BG = {
-        "OK":                   C_OK,
-        "SFORAMENTO MAX":       C_ERR,
-        "SFORAMENTO EMITTENTE": C_ERR,
-        "SOTTO MINIMO":         C_WARN,
-        "NON RILEVABILE":       C_STRIPE,
-    }
-
-    for i, row in enumerate(df.itertuples(index=False), 6):
-        esito = getattr(row, "esito", "")
-        row_bg = ESITO_BG.get(esito, C_WHITE)
-        ws.row_dimensions[i].height = 12
-        for j, (val, col_name) in enumerate(zip(list(row), list(df.columns)), 2):
-            cell = ws.cell(i, j)
-            cell.value     = val
-            cell.font      = Font(name=F_BODY, size=SZ_BODY, color=C_BLACK)
-            cell.alignment = Alignment(vertical="center")
-            cell.border    = _thin_border()
-            cell.fill      = PatternFill("solid", start_color=row_bg)
-            if "pct" in col_name.lower():
-                cell.number_format = '0.00"%"'
-
-    _auto_width(ws)
+def calcola_per_paese(df: pd.DataFrame) -> pd.DataFrame:
+    col_val = _get_valore_col(df)
+    totale = df[col_val].sum()
+    col_paese = None
+    for c in ["paese_emittente", "Paese emittente"]:
+        if c in df.columns:
+            col_paese = c
+            break
+    if col_paese is None:
+        return pd.DataFrame()
+    grp = df.groupby(col_paese)[col_val].sum().reset_index()
+    grp.columns = ["paese", "valore"]
+    grp["pct_portafoglio"] = grp["valore"] / totale * 100
+    return grp.sort_values("valore", ascending=False).reset_index(drop=True)
 
 
-def _write_db_grezzo(ws, df: pd.DataFrame, nome_gestione: str):
-    """
-    DB Grezzo: sheet completamente blank — solo dati grezzi, nessun header KPMG,
-    nessun titolo, nessuna formattazione extra. Intestazione in riga 1, dati da riga 2.
-    """
-    if df.empty:
-        return
-
-    # Riga 1 — intestazione colonne, plain
-    for j, col in enumerate(df.columns, 1):
-        cell = ws.cell(1, j, str(col))
-        cell.font      = Font(name=F_BODY, size=SZ_BODY, bold=True, color=C_BLACK)
-        cell.alignment = Alignment(vertical="center", wrap_text=False)
-
-    # Righe dati — valori puri, nessun colore
-    for i, row in enumerate(df.itertuples(index=False), 2):
-        for j, val in enumerate(list(row), 1):
-            cell = ws.cell(i, j)
-            cell.value     = val
-            cell.font      = Font(name=F_BODY, size=SZ_BODY, color=C_BLACK)
-            cell.alignment = Alignment(vertical="center")
-
-    # Auto width minimale
-    for col in ws.columns:
-        width = 8
-        for cell in col:
-            if cell.value:
-                width = max(width, min(len(str(cell.value)) + 2, 40))
-        ws.column_dimensions[get_column_letter(col[0].column)].width = width
+def calcola_per_valuta(df: pd.DataFrame) -> pd.DataFrame:
+    col_val = _get_valore_col(df)
+    totale = df[col_val].sum()
+    col_valuta = None
+    for c in ["valuta", "Valuta"]:
+        if c in df.columns:
+            col_valuta = c
+            break
+    if col_valuta is None:
+        return pd.DataFrame()
+    grp = df.groupby(col_valuta)[col_val].sum().reset_index()
+    grp.columns = ["valuta", "valore"]
+    grp["pct_portafoglio"] = grp["valore"] / totale * 100
+    return grp.sort_values("valore", ascending=False).reset_index(drop=True)
 
 
-# ══════════════════════════════════════════════════════════════════════════════
-def genera_excel(
+def verifica_limiti(
     df_portafoglio: pd.DataFrame,
-    df_cat:         pd.DataFrame,
-    df_emit:        pd.DataFrame,
-    df_paesi:       pd.DataFrame,
-    df_valute:      pd.DataFrame,
-    df_verifica_reg38: pd.DataFrame,
-    df_verifica_reg:   pd.DataFrame,
-    limiti_reg38:      list,
-    limiti_regolamento: list,
-    nome_gestione:  str,
-    info_gestione:  dict,
-) -> bytes:
-    """Genera l'Excel completo KPMG-styled e restituisce bytes."""
+    limiti_reg38: list[dict],
+    limiti_regolamento: list[dict],
+) -> pd.DataFrame:
+    col_val = _get_valore_col(df_portafoglio)
+    col_class = _get_class_col(df_portafoglio)
+    col_prod = _get_prod_col(df_portafoglio)
+    totale = df_portafoglio[col_val].sum()
 
-    wb = Workbook()
+    df_emit = calcola_per_emittente(df_portafoglio)
+    rows = []
 
-    # ── 0. Cover ──────────────────────────────────────────────────────────────
-    ws_cover = wb.active
-    ws_cover.title = "Cover"
-    ws_cover.sheet_view.showGridLines = False
-    ws_cover.column_dimensions["A"].width = 2
-    ws_cover.column_dimensions["B"].width = 30
-    ws_cover.column_dimensions["C"].width = 45
+    def _check(limiti: list[dict], fonte: str):
+        for lim in limiti:
+            cat = lim.get("categoria_asset", "")
 
-    # B2 logo
-    c2 = ws_cover["B2"]
-    c2.value = "KPMG"
-    c2.font  = Font(name=F_LOGO, size=18, color=C_KPMG_BLUE)
-    c2.alignment = Alignment(horizontal="left", vertical="center")
-    ws_cover.row_dimensions[2].height = 26
+            if col_class is not None:
+                pct_eff = _pct_per_categoria(
+                    df_portafoglio, col_val, col_class, col_prod, cat
+                )
+                any_match = df_portafoglio[col_class].astype(str).apply(
+                    lambda v: _match_categoria(v, "", cat)
+                ).any()
+            else:
+                pct_eff   = 0.0
+                any_match = False
 
-    # B3 titolo
-    c3 = ws_cover["B3"]
-    c3.value = "Analisi Limiti di Investimento"
-    c3.font  = Font(name=F_BOLD, size=14, bold=True, color=C_KPMG_BLUE)
-    c3.alignment = Alignment(horizontal="left", vertical="center")
-    ws_cover.row_dimensions[3].height = 22
+            lim_max = lim.get("limite_max_pct")
+            lim_min = lim.get("limite_min_pct")
+            lim_emit = lim.get("limite_emittente_pct")
 
-    # B4 sottotitolo gestione
-    c4 = ws_cover["B4"]
-    c4.value = nome_gestione
-    c4.font  = Font(name=F_BODY, size=11, color=C_KPMG_BLUE)
-    c4.alignment = Alignment(horizontal="left", vertical="center")
-    ws_cover.row_dimensions[4].height = 18
+            max_emit_pct = None
+            if lim_emit is not None and not df_emit.empty and pct_eff > 0:
+                max_emit_pct = float(df_emit["pct_portafoglio"].max())
 
-    ws_cover.row_dimensions[5].height = 10  # spazio
+            # Determina esito
+            if not any_match and pct_eff == 0.0:
+                esito = "NON RILEVABILE"
+                scostamento = None
+            elif lim_max is not None and pct_eff > lim_max:
+                esito = "SFORAMENTO MAX"
+                scostamento = round(pct_eff - lim_max, 2)
+            elif lim_min is not None and pct_eff < lim_min:
+                esito = "SOTTO MINIMO"
+                scostamento = round(pct_eff - lim_min, 2)
+            elif (lim_emit is not None and max_emit_pct is not None
+                  and max_emit_pct > lim_emit):
+                esito = "SFORAMENTO EMITTENTE"
+                scostamento = round(max_emit_pct - lim_emit, 2)
+            else:
+                esito = "OK"
+                scostamento = None
 
-    meta = [
-        ("Gestione / Fondo",   info_gestione.get("nome_gestione", nome_gestione)),
-        ("Tipo",               info_gestione.get("tipo", "—")),
-        ("Compagnia",          info_gestione.get("compagnia", "—")),
-        ("Data elaborazione",  datetime.date.today().strftime("%d/%m/%Y")),
-        ("N. posizioni",       len(df_portafoglio)),
-        ("Totale portafoglio (EUR)",
-         f"{df_portafoglio['valore_mercato'].sum():,.2f}"
-         if "valore_mercato" in df_portafoglio.columns else "—"),
-    ]
-    for r, (label, val) in enumerate(meta, 6):
-        lbl = ws_cover.cell(r, 2, label)
-        lbl.font      = Font(name=F_BODY, size=9, bold=True, color=C_BLACK)
-        lbl.alignment = Alignment(vertical="center")
-        vl = ws_cover.cell(r, 3, val)
-        vl.font       = Font(name=F_BODY, size=9, color=C_BLACK)
-        vl.alignment  = Alignment(vertical="center")
-        ws_cover.row_dimensions[r].height = 16
+            rows.append({
+                "fonte": fonte,
+                "categoria_asset": cat,
+                "articolo": lim.get("articolo", lim.get("sezione", "")),
+                "limite_max_pct": lim_max,
+                "limite_min_pct": lim_min,
+                "limite_emittente_pct": lim_emit,
+                "valore_effettivo_pct": round(pct_eff, 2),
+                "max_emittente_pct": round(max_emit_pct, 2) if max_emit_pct else None,
+                "esito": esito,
+                "scostamento_pp": scostamento,
+                "note": lim.get("note", ""),
+            })
 
-    # ── 1. DB Grezzo ──────────────────────────────────────────────────────────
-    ws_db = wb.create_sheet("DB_Grezzo")
-    _write_db_grezzo(ws_db, df_portafoglio, nome_gestione)
+    _check(limiti_reg38,       "Reg. IVASS")
+    _check(limiti_regolamento, "Regolamento Gestione")
 
-    # ── 2. Analisi Categorie ──────────────────────────────────────────────────
-    if not df_cat.empty:
-        ws_cat = wb.create_sheet("Analisi_Categorie")
-        _write_kpmg_sheet(ws_cat, df_cat, "Composizione per categoria IVASS / CIC")
-
-    # ── 3. Analisi Emittenti ─────────────────────────────────────────────────
-    if not df_emit.empty:
-        ws_emit = wb.create_sheet("Analisi_Emittenti")
-        _write_kpmg_sheet(ws_emit, df_emit, "Concentrazione per emittente")
-
-    # ── 4. Analisi Paesi ─────────────────────────────────────────────────────
-    if not df_paesi.empty:
-        ws_paesi = wb.create_sheet("Analisi_Paesi")
-        _write_kpmg_sheet(ws_paesi, df_paesi, "Esposizione per paese")
-
-    # ── 5. Analisi Valute ────────────────────────────────────────────────────
-    if not df_valute.empty:
-        ws_val = wb.create_sheet("Analisi_Valute")
-        _write_kpmg_sheet(ws_val, df_valute, "Esposizione per valuta")
-
-    # ── 6. Verifica Normativa IVASS ───────────────────────────────────────────
-    if not df_verifica_reg38.empty:
-        ws_v38 = wb.create_sheet("Verifica_Reg38")
-        _write_verifica_sheet(ws_v38, df_verifica_reg38,
-                              "Verifica limiti — Normativa IVASS")
-
-    # ── 7. Verifica Regolamento Gestione ─────────────────────────────────────
-    if not df_verifica_reg.empty:
-        ws_vreg = wb.create_sheet("Verifica_Regolamento")
-        _write_verifica_sheet(ws_vreg, df_verifica_reg,
-                              "Verifica limiti — Regolamento gestione")
-
-    # ── 8. Limiti Raw ─────────────────────────────────────────────────────────
-    if limiti_reg38:
-        ws_lr38 = wb.create_sheet("Limiti_Reg38_Raw")
-        _write_kpmg_sheet(ws_lr38, pd.DataFrame(limiti_reg38),
-                          "Limiti estratti — Normativa IVASS")
-
-    if limiti_regolamento:
-        ws_lreg = wb.create_sheet("Limiti_Regolamento_Raw")
-        _write_kpmg_sheet(ws_lreg, pd.DataFrame(limiti_regolamento),
-                          "Limiti estratti — Regolamento gestione")
-
-    # ── Output ────────────────────────────────────────────────────────────────
-    buf = io.BytesIO()
-    wb.save(buf)
-    buf.seek(0)
-    return buf.read()
+    return pd.DataFrame(rows)
