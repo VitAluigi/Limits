@@ -220,7 +220,7 @@ if st.session_state.df_ship is not None:
                      if sel != "(tutti)"}
     if filtri_attivi:
         parti = " · ".join(f"**{k}**: {v}" for k, v in filtri_attivi.items())
-        st.caption(f"Filtri attivi — {parti} — {len(df_sel):,} posizioni")
+        st.caption(f"Filtri attivi - {parti} - {len(df_sel):,} posizioni")
     else:
         st.caption(f"{len(df_sel):,} posizioni (nessun filtro attivo)")
 
