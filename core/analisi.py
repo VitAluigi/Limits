@@ -1,39 +1,128 @@
 import pandas as pd
-import numpy as np
 
-
-# Mapping categorie IVASS -> macro-categorie per confronto con limiti Reg.38
-CATEGORIA_MAP = {
-    # Titoli di Stato
-    "1": "Titoli di Stato UE",
-    "1.1": "Titoli di Stato UE",
-    "1.2": "Titoli di Stato extra-UE",
-    # Obbligazioni
-    "2": "Obbligazioni corporate",
-    "2.1": "Obbligazioni corporate quotate",
-    "2.2": "Obbligazioni corporate non quotate",
-    # Azioni
-    "3": "Azioni quotate",
-    "3.1": "Azioni quotate",
-    "3.2": "Azioni non quotate",
-    # Fondi
-    "4": "Fondi OICR",
-    "4.1": "Fondi OICR armonizzati",
-    "4.2": "Fondi alternativi FIA",
-    # Immobili
-    "5": "Immobili",
+CATEGORIA_REGOLAMENTO = {
+    # Obbligazionario
+    "obbligazionari": [
+        # Nomi SAP reali
+        "Govt bonds >1 year <10 years",
+        "Govt bonds >10 years",
+        "Govt bonds <1 year",
+        "Ordinary bond",
+        "Subordinated bond",
+        "Infra Bonds",
+        "Index Linked Bonds",
+        "Mortgage Backed Security",
+        "Asset Backed Security",
+        "Collateralized Debt Obligation (CDO)",
+        "Perpetual Notes",
+        "Credit linked note",
+        "Separated Trading of Registered Interest and Principal (STRI",
+        # Nomi CIC inglese (dummy/altri sistemi)
+        "Government Bonds EU",
+        "Government Bonds non-EU",
+        "Corporate Bonds listed",
+        "Corporate Bonds unlisted",
+        "Covered bond",
+        "Covered Bonds",
+        "Cash and deposits",   # incluso nell'obbligazionario per GESAV
+        "Money market",
+    ],
+    # Azionario
+    "azionari": [
+        "Share",
+        "Private Equities",
+        "Real Estate Shares",
+        "Equities listed",
+        "Equities unlisted",
+        "Equity",
+    ],
+    # Immobiliare
+    "immobiliari": [
+        "Real Estate Shares",
+        "Real Estate fund",
+        "Real Estate",
+        "Real estate",
+    ],
+    # Fondi / OICR / altri strumenti finanziari
+    "altri strumenti": [
+        "Fixed Income fund",
+        "Private equity fund",
+        "Mixed fund",
+        "Hedge fund",
+        "Real Estate fund",
+        "Equity fund",
+        "Money market fund",
+        "Commodity fund",
+        "UCITS funds",
+        "AIF",
+        "UCITS",
+        "Fund",
+    ],
+    # Liquidità / depositi
+    "liquidità": [
+        "Money market fund",
+        "Cash and deposits",
+        "Cash",
+        "Deposit",
+    ],
+    # Prestiti / finanziamenti
+    "prestiti": [
+        "Loan",
+        "Infra Loans",
+        "Loans",
+    ],
     # Derivati
-    "6": "Derivati",
-    # Liquidità
-    "7": "Depositi e liquidità",
-    "7.1": "Depositi bancari",
-    # Prestiti
-    "8": "Prestiti",
-    # Altro
-    "9": "Altre attività",
+    "derivati": [
+        "Credit Default Swap (CDS)",
+        "Interest rate swap (IRS)",
+        "FX Forward",
+        "OTC Currency Option Call",
+        "OTC Currency Option Put",
+        "Asset Swap",
+        "TRS Nominal",
+        "OTC Payer-Swaption (Put)",
+        "Cross-curr.int.rate swap (CCS)",
+        "OTC Receiver-Swaption (Call)",
+        "OTC Index Option Call",
+        "OTC Index Option Put",
+        "Securities  Forward",
+    ],
+}
+
+# Classificazioni da escludere / non considerare ai fini del calcolo limiti
+# (derivati, repo, strumenti fuori bilancio, voci P&L)
+NOT_ASSIGNED_PRODUCT_TYPES = {
+    "Repurchase Agreement",
+    "Other P/L Items",
+    "Repo Collateral Margin Account",
+    "Credit Default Swap (CDS)",
+    "Securities  Forward",
+    "FX Forward",
+    "OTC Currency Option Call",
+    "OTC Currency Option Put",
+    "Interest rate swap (IRS)",
+    "OTC Index Option Put",
+    "3rd party assets - OTCs",
+    "TRS Nominal",
+    "OTC Payer-Swaption (Put)",
+    "Cross-curr.int.rate swap (CCS)",
+    "OTC Receiver-Swaption (Call)",
+    "OTC Index Option Call",
+    "Asset Swap",
+    "SPV",
+    "Asset Swap (Spanish)",
+    "Deposit Swap",
+    "Credit Linked Deposit",
+    "Irregular Fix-to-Fix Swap",
+    "Cash",
 }
 
 COLONNE_VALORE = ["valore_mercato", "valore_bilancio"]
+
+COLS_CLASS = ["sottocategoria_ivass", "Security Classification Name",
+              "CIC Classification Name", "categoria_ivass"]
+COLS_PROD = ["tipo_prodotto", "Product Type Name"]
+
 
 def _get_valore_col(df: pd.DataFrame) -> str:
     for c in COLONNE_VALORE:
@@ -41,152 +130,185 @@ def _get_valore_col(df: pd.DataFrame) -> str:
             return c
     raise ValueError("Nessuna colonna valore trovata nel SHIP.")
 
+
+def _get_class_col(df: pd.DataFrame):
+    for c in COLS_CLASS:
+        if c in df.columns:
+            return c
+    return None
+
+
+def _get_prod_col(df: pd.DataFrame):
+    for c in COLS_PROD:
+        if c in df.columns:
+            return c
+    return None
+
+
+def _is_not_assigned(class_val: str, prod_val: str) -> bool:
+    """True se la riga è un derivato/repo/cash → esclusa dal calcolo limiti."""
+    if str(class_val).strip().lower() == "not assigned":
+        return str(prod_val).strip() in NOT_ASSIGNED_PRODUCT_TYPES
+    return False
+
+
+def _match_categoria(class_val: str, prod_val: str, categoria_str: str) -> bool:
+    """
+    Ritorna True se (Security Classification Name, Product Type Name)
+    rientrano nella macro-categoria testuale del regolamento.
+    """
+    cat_lower = categoria_str.lower().strip()
+    class_str = str(class_val).strip()
+
+    for kw, scn_list in CATEGORIA_REGOLAMENTO.items():
+        if kw in cat_lower:
+            if class_str in scn_list:
+                return True
+
+    if cat_lower in class_str.lower() or class_str.lower() in cat_lower:
+        return True
+
+    return False
+
+
+def _pct_per_categoria(df: pd.DataFrame, col_val: str, col_class: str,
+                       col_prod, categoria_str: str) -> float:
+    """% del portafoglio che matcha la categoria testuale del regolamento."""
+    totale = df[col_val].sum()
+    if totale == 0:
+        return 0.0
+
+    mask = df.apply(
+        lambda r: _match_categoria(
+            r[col_class],
+            r[col_prod] if col_prod else "",
+            categoria_str
+        ), axis=1
+    )
+    return float(df.loc[mask, col_val].sum() / totale * 100)
+
+
 def calcola_totale(df: pd.DataFrame) -> float:
-    col = _get_valore_col(df)
-    return df[col].sum()
+    return df[_get_valore_col(df)].sum()
+
 
 def calcola_per_categoria(df: pd.DataFrame) -> pd.DataFrame:
-    """Calcola valore e % per categoria IVASS."""
     col_val = _get_valore_col(df)
+    col_class = _get_class_col(df)
     totale = df[col_val].sum()
-    
-    col_cat = None
-    for c in ["categoria_ivass", "Categoria IVASS", "sottocategoria_ivass"]:
-        if c in df.columns:
-            col_cat = c
-            break
-    
-    if col_cat is None:
+
+    if col_class is None:
         return pd.DataFrame()
-    
-    grp = df.groupby(col_cat)[col_val].sum().reset_index()
+
+    grp = df.groupby(col_class)[col_val].sum().reset_index()
     grp.columns = ["categoria_ivass", "valore"]
     grp["pct_portafoglio"] = grp["valore"] / totale * 100
     grp = grp.sort_values("valore", ascending=False).reset_index(drop=True)
     return grp
 
+
 def calcola_per_emittente(df: pd.DataFrame) -> pd.DataFrame:
-    """Calcola concentrazione per emittente."""
     col_val = _get_valore_col(df)
     totale = df[col_val].sum()
-    
     col_emit = None
     for c in ["denominazione_emittente", "Denominazione emittente", "lei_emittente"]:
         if c in df.columns:
             col_emit = c
             break
-    
     if col_emit is None:
         return pd.DataFrame()
-    
     grp = df.groupby(col_emit)[col_val].sum().reset_index()
     grp.columns = ["emittente", "valore"]
     grp["pct_portafoglio"] = grp["valore"] / totale * 100
-    grp = grp.sort_values("valore", ascending=False).reset_index(drop=True)
-    return grp
+    return grp.sort_values("valore", ascending=False).reset_index(drop=True)
+
 
 def calcola_per_paese(df: pd.DataFrame) -> pd.DataFrame:
-    """Calcola concentrazione per paese emittente."""
     col_val = _get_valore_col(df)
     totale = df[col_val].sum()
-    
     col_paese = None
     for c in ["paese_emittente", "Paese emittente"]:
         if c in df.columns:
             col_paese = c
             break
-    
     if col_paese is None:
         return pd.DataFrame()
-    
     grp = df.groupby(col_paese)[col_val].sum().reset_index()
     grp.columns = ["paese", "valore"]
     grp["pct_portafoglio"] = grp["valore"] / totale * 100
-    grp = grp.sort_values("valore", ascending=False).reset_index(drop=True)
-    return grp
+    return grp.sort_values("valore", ascending=False).reset_index(drop=True)
+
 
 def calcola_per_valuta(df: pd.DataFrame) -> pd.DataFrame:
-    """Calcola esposizione per valuta."""
     col_val = _get_valore_col(df)
     totale = df[col_val].sum()
-    
-    col_val_uta = None
+    col_valuta = None
     for c in ["valuta", "Valuta"]:
         if c in df.columns:
-            col_val_uta = c
+            col_valuta = c
             break
-    
-    if col_val_uta is None:
+    if col_valuta is None:
         return pd.DataFrame()
-    
-    grp = df.groupby(col_val_uta)[col_val].sum().reset_index()
+    grp = df.groupby(col_valuta)[col_val].sum().reset_index()
     grp.columns = ["valuta", "valore"]
     grp["pct_portafoglio"] = grp["valore"] / totale * 100
-    grp = grp.sort_values("valore", ascending=False).reset_index(drop=True)
-    return grp
+    return grp.sort_values("valore", ascending=False).reset_index(drop=True)
+
 
 def verifica_limiti(
     df_portafoglio: pd.DataFrame,
     limiti_reg38: list[dict],
     limiti_regolamento: list[dict],
 ) -> pd.DataFrame:
-    """
-    Confronta portafoglio con limiti estratti da Reg.38 e regolamento.
-    Restituisce DataFrame con colonne: fonte, categoria_asset, articolo,
-    limite_max_pct, limite_min_pct, limite_emittente_pct,
-    valore_effettivo_pct, max_emittente_pct, esito, scostamento
-    """
     col_val = _get_valore_col(df_portafoglio)
+    col_class = _get_class_col(df_portafoglio)
+    col_prod = _get_prod_col(df_portafoglio)
     totale = df_portafoglio[col_val].sum()
-    
-    df_cat = calcola_per_categoria(df_portafoglio)
+
     df_emit = calcola_per_emittente(df_portafoglio)
-    
     rows = []
-    
-    def _check_limiti(limiti: list[dict], fonte: str):
+
+    def _check(limiti: list[dict], fonte: str):
         for lim in limiti:
             cat = lim.get("categoria_asset", "")
-            
-            # Cerca categoria nel portafoglio (match flessibile)
-            pct_effettiva = None
-            if not df_cat.empty:
-                matches = df_cat[
-                    df_cat["categoria_ivass"].astype(str).str.lower().str.contains(
-                        cat.lower()[:20], na=False
-                    )
-                ]
-                if not matches.empty:
-                    pct_effettiva = matches["pct_portafoglio"].sum()
-                else:
-                    pct_effettiva = 0.0
-            
-            # Max concentrazione emittente nella categoria
-            max_emit_pct = None
-            if not df_emit.empty and pct_effettiva and pct_effettiva > 0:
-                max_emit_pct = df_emit["pct_portafoglio"].max()
-            
-            # Verifica esito
+
+            if col_class is not None:
+                pct_eff = _pct_per_categoria(
+                    df_portafoglio, col_val, col_class, col_prod, cat
+                )
+                any_match = df_portafoglio[col_class].astype(str).apply(
+                    lambda v: _match_categoria(v, "", cat)
+                ).any()
+            else:
+                pct_eff   = 0.0
+                any_match = False
+
             lim_max = lim.get("limite_max_pct")
             lim_min = lim.get("limite_min_pct")
             lim_emit = lim.get("limite_emittente_pct")
-            
-            esito = "OK"
-            scostamento = None
-            
-            if pct_effettiva is not None:
-                if lim_max is not None and pct_effettiva > lim_max:
-                    esito = "SFORAMENTO MAX"
-                    scostamento = pct_effettiva - lim_max
-                elif lim_min is not None and pct_effettiva < lim_min:
-                    esito = "SOTTO MINIMO"
-                    scostamento = pct_effettiva - lim_min
-                elif lim_emit is not None and max_emit_pct is not None and max_emit_pct > lim_emit:
-                    esito = "SFORAMENTO EMITTENTE"
-                    scostamento = max_emit_pct - lim_emit
-            else:
+
+            max_emit_pct = None
+            if lim_emit is not None and not df_emit.empty and pct_eff > 0:
+                max_emit_pct = float(df_emit["pct_portafoglio"].max())
+
+            # Determina esito
+            if not any_match and pct_eff == 0.0:
                 esito = "NON RILEVABILE"
-            
+                scostamento = None
+            elif lim_max is not None and pct_eff > lim_max:
+                esito = "SFORAMENTO MAX"
+                scostamento = round(pct_eff - lim_max, 2)
+            elif lim_min is not None and pct_eff < lim_min:
+                esito = "SOTTO MINIMO"
+                scostamento = round(pct_eff - lim_min, 2)
+            elif (lim_emit is not None and max_emit_pct is not None
+                  and max_emit_pct > lim_emit):
+                esito = "SFORAMENTO EMITTENTE"
+                scostamento = round(max_emit_pct - lim_emit, 2)
+            else:
+                esito = "OK"
+                scostamento = None
+
             rows.append({
                 "fonte": fonte,
                 "categoria_asset": cat,
@@ -194,14 +316,14 @@ def verifica_limiti(
                 "limite_max_pct": lim_max,
                 "limite_min_pct": lim_min,
                 "limite_emittente_pct": lim_emit,
-                "valore_effettivo_pct": round(pct_effettiva, 4) if pct_effettiva is not None else None,
-                "max_emittente_pct": round(max_emit_pct, 4) if max_emit_pct is not None else None,
+                "valore_effettivo_pct": round(pct_eff, 2),
+                "max_emittente_pct": round(max_emit_pct, 2) if max_emit_pct else None,
                 "esito": esito,
-                "scostamento_pp": round(scostamento, 4) if scostamento is not None else None,
+                "scostamento_pp": scostamento,
                 "note": lim.get("note", ""),
             })
-    
-    _check_limiti(limiti_reg38, "Reg. IVASS n.38")
-    _check_limiti(limiti_regolamento, "Regolamento Gestione")
-    
+
+    _check(limiti_reg38,       "Reg. IVASS")
+    _check(limiti_regolamento, "Regolamento Gestione")
+
     return pd.DataFrame(rows)
