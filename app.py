@@ -1,14 +1,3 @@
-"""
-Analisi Limiti Gestioni e Fondi Assicurativi
-
-Flusso:
-  1. Caricamento PDF Regolamento Gestione
-  2. Caricamento PDF Regolamento IVASS n.38
-  3. Caricamento db Excel
-  4. Selezione gestione da analizzare
-  5. Generazione Excel con DB grezzo + sheet di analisi
-"""
-
 import streamlit as st
 import pandas as pd
 import os
@@ -233,12 +222,12 @@ if st.session_state.gestioni_list:
     with st.expander("Anteprima portafoglio filtrato", expanded=False):
         st.dataframe(df_sel.head(50), use_container_width=True, height=300)
     
-    # ── Genera Excel ──────────────────────────────────────────────────────────
+    # Genera Excel
     st.markdown("### 📥 Genera File di Analisi")
     
     can_generate = ok_ship
     if not ok_reg and not ok_38:
-        st.warning("⚠️ Carica almeno uno tra il Regolamento Gestione e il Reg. IVASS n.38 per la verifica dei limiti.")
+        st.warning("Carica almeno uno tra il Regolamento Gestione e il Reg. IVASS n.38 per la verifica dei limiti.")
     
     if can_generate:
         if st.button("⚙️ GENERA EXCEL", type="primary", use_container_width=False):
@@ -284,7 +273,7 @@ if st.session_state.gestioni_list:
         if st.session_state.get("excel_output"):
             nome_file = f"Analisi_Limiti_{st.session_state['excel_nome'].replace(' ', '_')}.xlsx"
             st.download_button(
-                label="⬇️ Scarica Excel Analisi",
+                label="Scarica Excel Analisi",
                 data=st.session_state["excel_output"],
                 file_name=nome_file,
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
