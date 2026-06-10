@@ -104,7 +104,7 @@ with st.sidebar:
 
     if pdf_regolamento:
         if st.button("Estrai limiti regolamento", use_container_width=True):
-            with st.spinner("Lettura PDF e analisi con Claude AI..."):
+            with st.spinner("Lettura PDF e analisi..."):
                 try:
                     testo = extract_text_from_pdf(pdf_regolamento.read())
                     st.session_state.testo_regolamento = testo
