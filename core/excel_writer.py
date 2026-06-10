@@ -44,15 +44,15 @@ def _thin_border():
 def _kpmg_header(ws, sheet_title: str):
     """
     Scrive l'intestazione KPMG standard:
-      B2 → "KPMG" in KPMG Logo 14 blu KPMG
-      B3 → sheet_title in KPMG Bold 14 blu KPMG
+      B2 -> "KPMG" in KPMG Logo 14 blu KPMG
+      B3 -> sheet_title in KPMG Bold 14 blu KPMG
     Nasconde griglia e imposta zoom 100%.
     """
     ws.sheet_view.showGridLines = False
 
     # B2 — logo KPMG
     c2 = ws["B2"]
-    c2.value = "KPMG"
+    c2.value = "kpmg"
     c2.font = Font(name=F_LOGO, size=SZ_HEAD, bold=False, color=C_KPMG_BLUE)
     c2.alignment = Alignment(horizontal="left", vertical="center")
     ws.row_dimensions[2].height = 20
