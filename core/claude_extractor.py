@@ -9,7 +9,7 @@ def _get_client():
     return anthropic.Anthropic(api_key=st.secrets["CLAUDE_API_KEY"])
 
 PROMPT_LIMITI_REG38 = """Sei un esperto di normativa assicurativa italiana. 
-Analizza il testo del Regolamento IVASS n.38 fornito ed estrai TUTTI i limiti quantitativi 
+Analizza il testo del Regolamento IVASS n.38 e 24 fornito ed estrai TUTTI i limiti quantitativi 
 sugli investimenti delle gestioni separate e fondi interni assicurativi.
 
 Per ogni limite estrai:
