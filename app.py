@@ -107,14 +107,14 @@ with col_s1:
     ok_ship = st.session_state.df_ship is not None
     n_pos = len(st.session_state.df_ship) if ok_ship else 0
     st.markdown(
-        f"{'✅' if ok_ship else '⬜'} **Portafoglio** — "
+        f"{'OK' if ok_ship else 'KO'} **Portafoglio** — "
         f"{'**' + str(n_pos) + ' posizioni**' if ok_ship else '_non caricato_'}"
     )
 with col_s2:
     ok_reg = st.session_state.limiti_reg is not None
     n_lim = len(st.session_state.limiti_reg) if ok_reg else 0
     st.markdown(
-        f"{'✅' if ok_reg else '⬜'} **Regolamento** — "
+        f"{'OK' if ok_reg else 'KO'} **Regolamento** — "
         f"{'**' + str(n_lim) + ' limiti**' if ok_reg else '_non caricato (solo check 474)_'}"
     )
 
@@ -183,7 +183,7 @@ if st.session_state.df_ship is not None:
     if len(df_sel) == 0:
         st.warning("Nessuna posizione nel perimetro selezionato.")
     else:
-        if st.button("▶ ESEGUI VERIFICA", type="primary", use_container_width=False):
+        if st.button("ESEGUI VERIFICA", type="primary", use_container_width=False):
             with st.spinner("Calcolo check 474 e regolamento…"):
                 try:
                     limiti_r = st.session_state.limiti_reg or []
@@ -235,10 +235,10 @@ if st.session_state.df_ship is not None:
 
         st.markdown("#### Sintesi check Circolare 474/D")
         sc1, sc2, sc3, sc4 = st.columns(4)
-        sc1.metric("✅ OK",              ok4)
-        sc2.metric("🔴 Sforamenti",      e4)
-        sc3.metric("🟡 Sotto minimo",    w4)
-        sc4.metric("⬜ Non rilevabile",  nr4)
+        sc1.metric("OK",              ok4)
+        sc2.metric("Sforamenti",      e4)
+        sc3.metric("Sotto minimo",    w4)
+        sc4.metric("Non rilevabile",  nr4)
 
         # Tabella risultati 474
         def _color_esito(val):
@@ -271,16 +271,16 @@ if st.session_state.df_ship is not None:
         if results_reg:
             st.markdown("#### Sintesi check Regolamento fondo")
             rc1, rc2, rc3, rc4 = st.columns(4)
-            rc1.metric("✅ OK", okr)
-            rc2.metric("🔴 Sforamenti", er)
-            rc3.metric("🟡 Sotto minimo", wr)
-            rc4.metric("⬜ Non rilevabile", nrr)
+            rc1.metric("OK", okr)
+            rc2.metric("Sforamenti", er)
+            rc3.metric("Sotto minimo", wr)
+            rc4.metric("Non rilevabile", nrr)
 
             rows_reg = []
             for r in results_reg:
                 rows_reg.append({
                     "Descrizione": r.descrizione,
-                    "Art./§": r.articolo,
+                    "Art./Par.": r.articolo,
                     "Limite MAX %": r.limite_max_pct,
                     "Limite MIN %": r.limite_min_pct,
                     "Valore %": r.valore_effettivo_pct,
