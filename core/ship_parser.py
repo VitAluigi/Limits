@@ -1,169 +1,209 @@
-import pandas as pd
-import io
+"""
+ship_parser.py
+Parsing del file SHIP IVASS.
+Mappa le colonne originali ai nomi interni usati dal motore di analisi.
+"""
 
+import io
+import pandas as pd
+
+# ---------------------------------------------------------------------------
+# Mappa colonne SHIP → nomi interni
+# ---------------------------------------------------------------------------
 SHIP_COLS_MAP = {
     # Identificativi
-    "Codice ABI / Codice fiscale impresa": "codice_impresa",
-    "Denominazione impresa": "denominazione_impresa",
-    "Codice gestione/fondo": "codice_gestione",
-    "Denominazione gestione/fondo": "denominazione_gestione",
-    "Tipo gestione": "tipo_gestione",
-    "Company Code": "codice_impresa",
-    "Company Code Name": "denominazione_impresa",
-    "Portfolio": "codice_portafoglio",
-    "Portfolio Name": "denominazione_portafoglio",
-    "Security Account Group": "codice_gestione",
-    "Security Account Group Name": "denominazione_gestione",
-    "Valuation Area Name": "tipo_gestione",
+    "Date":                                 "data_riferimento",
+    "Valuation Area":                       "codice_area",
+    "Valuation Area Name":                  "tipo_gestione",
+    "Company Code":                         "codice_impresa",
+    "Company Code Name":                    "denominazione_impresa",
+    "Portfolio":                            "codice_portafoglio",
+    "Portfolio Name":                       "denominazione_portafoglio",
+    "Security Account Group":              "codice_gestione",
+    "Security Account Group Name":         "denominazione_gestione",
 
-    # Titolo
-    "ISIN": "isin",
-    "ISIN Code": "isin",
-    "Denominazione strumento": "denominazione_strumento",
-    "Security ID Name": "denominazione_strumento",
-    "Codice Bloomberg": "codice_bloomberg",
+    # Classificazione strumento
+    "Security Classification Name":        "security_class",
+    "Valuation Class Name":                "valuation_class",
+    "Product Type Name":                   "product_type",
+    "Fund Type":                           "fund_type",          # UCITS / AIF / blank
+    "Long/Short Position Name":            "long_short",         # Long / Short
 
-    # Classificazione
-    "Balance Sheet Category Name": "categoria_bilancio_ivass",
-    "Valuation Class Name": "classificazione_ifrs9",
-    "Bond Classification Name": "interest_rate_classification",
+    # ISIN e denominazione
+    "ISIN Code":                           "isin",
+    "Security ID Name":                    "denominazione_strumento",
 
-    # Emittente / Controparte
-    "Paese emittente": "paese_emittente",
-    "Issuer Country Name": "paese_emittente",
-    "Denominazione emittente": "denominazione_emittente",
-    "Issuer Name": "denominazione_emittente",
-    "Codice LEI emittente": "lei_emittente",
-    "Issuer": "lei_emittente",
-    "Rating": "rating",
-    "IFRS9 Rating": "rating",
-    "Rating Issue S&P": "rating_sp",
-    "Rating Issue Moody's": "rating_moodys",
-    "Rating Issue Fitch": "rating_fitch",
-    "Settore emittente": "settore_emittente",
-    "Issuer Industry Name": "settore_emittente",
-    "Issuer Type Name": "issuer_type",
+    # Valore di mercato (colonna primaria per i calcoli)
+    "Total Market Value LC":               "valore_mercato",
+    "Total Book Value LC":                 "valore_bilancio",
 
-    # Valori
-    "Valore di bilancio": "valore_bilancio",
-    "Total Book Value LC": "valore_bilancio",
-    "Total Market Value LC": "valore_mercato",
-    "Nominal/units": "valore_nominale",
-    "Issue Currency": "valuta",
-    "Position Currency": "valuta",
-    "Accrued Interest LC": "rateo",
-    "Exchange Rate": "cambio",
+    # Quotazione
+    "Indicator: Listed on Exchange":       "listed",             # X = quotato, NaN = non quotato
 
-    # Rischio / Duration
-    "Modified Duration": "modified_duration",
-    "Mac Duration": "mac_duration",
-    "Market Yield": "market_yield",
-    "Interest Rate": "cedola",
-    "Measurement Model": "measurement_model",
-    "Stage IFRS9": "stage_ifrs9",
+    # Rating (fallback chain: S&P → Fitch → Moody's → IFRS9)
+    "Rating Issue S&P":                    "rating_sp",
+    "Rating Issue Fitch":                  "rating_fitch",
+    "Rating Issue Moody's":               "rating_moodys",
+    "IFRS9 Rating":                        "rating_ifrs9",
 
-    # Date
-    "Final Due Date": "data_scadenza",
-    "Data riferimento": "data_riferimento",
-    "Date": "data_riferimento",
-    "Acquisition Date": "data_acquisto",
-    "Issue Date": "data_emissione",
+    # Emittente / Gruppo
+    "Issuer Name":                         "denominazione_emittente",
+    "Issuer Country Name":                 "paese_emittente",
+    "Issuer Ultimate Parent Numb Name":    "gruppo_emittente",    # 474 §2 limite gruppo 30%
+    "Issuer Type Name":                    "issuer_type",
 
-    # Sezione registro
-    "Sezione": "sezione_registro",
-    "Product Category Name": "categoria_prodotto",
-    "Product Type Name": "tipo_prodotto",
-    "GRM Holding Type Name": "holding_type",
+    # Valuta
+    "Issue Currency":                      "valuta",
 }
 
-_NUMERIC_COLS = [
-    "valore_bilancio", "valore_mercato", "valore_mercato_totale",
-    "valore_nominale", "quantita", "rateo", "cambio",
-    "modified_duration", "mac_duration", "market_yield", "cedola",
+# Colonne non considerate ai fini del calcolo totale portafoglio
+# (derivati OTC, repo, cash collateral …)
+PRODUCT_TYPES_ESCLUSI = {
+    "Repurchase Agreement",
+    "Interest rate swap (IRS)",
+    "FX Forward",
+    "Credit Default Swap (CDS)",
+    "Securities  Forward",
+    "Other P/L Items",
+    "Repo Collateral Margin Account",
+}
+
+_NUMERIC_COLS = ["valore_mercato", "valore_bilancio"]
+
+# Rating scala S&P con ordine crescente di qualità
+RATING_ORDER_SP = [
+    "AAA", "AA+", "AA", "AA-",
+    "A+",  "A",   "A-",
+    "BBB+","BBB", "BBB-",
+    "BB+", "BB",  "BB-",
+    "B+",  "B",   "B-",
+    "CCC+","CCC", "CCC-",
+    "CC",  "C",   "D",
 ]
+
+# Mappa da notazione Moody's a equivalente S&P
+MOODYS_TO_SP = {
+    "Aaa":"AAA","Aa1":"AA+","Aa2":"AA","Aa3":"AA-",
+    "A1":"A+","A2":"A","A3":"A-",
+    "Baa1":"BBB+","Baa2":"BBB","Baa3":"BBB-",
+    "Ba1":"BB+","Ba2":"BB","Ba3":"BB-",
+    "B1":"B+","B2":"B","B3":"B-",
+    "Caa1":"CCC+","Caa2":"CCC","Caa3":"CCC-",
+    "Ca":"CC","C":"C","D":"D",
+}
+
+# Rating minimi accettabili ai sensi 474 (≥ BB)
+RATING_MIN_474 = {r for r in RATING_ORDER_SP if RATING_ORDER_SP.index(r) <= RATING_ORDER_SP.index("BB")}
+
+
+def _normalize_rating(r) -> str | None:
+    """Restituisce il rating in scala S&P normalizzato, o None se N.D."""
+    if pd.isna(r):
+        return None
+    r = str(r).strip().upper()
+    if r in ("NR", "N/A", "NA", "NOT RATED", ""):
+        return "NR"
+    # Prova conversione Moody's
+    for m, sp in MOODYS_TO_SP.items():
+        if r == m.upper():
+            return sp
+    # Fitch e S&P usano la stessa scala
+    if r in [x.upper() for x in RATING_ORDER_SP]:
+        # restituisce con la capitalizzazione canonica
+        idx = [x.upper() for x in RATING_ORDER_SP].index(r)
+        return RATING_ORDER_SP[idx]
+    return None
 
 
 def load_ship(file_bytes: bytes) -> pd.DataFrame:
+    """
+    Carica il file SHIP da bytes, individua la riga di intestazione,
+    rinomina le colonne e restituisce un DataFrame pulito.
+    """
     xls = pd.ExcelFile(io.BytesIO(file_bytes))
+    sheet = xls.sheet_names[0]
 
-    df_raw = None
-    sheet_used = None
-    for sheet in xls.sheet_names:
-        df_try = pd.read_excel(xls, sheet_name=sheet, header=None)
-        if df_try.shape[0] > 2 and df_try.shape[1] > 3:
-            df_raw = df_try
-            sheet_used = sheet
-            break
-
-    if df_raw is None:
-        raise ValueError("Nessun foglio dati trovato nel file SHIP.")
-        
+    # Trova la riga header: quella con più valori non-null
+    df_raw = pd.read_excel(xls, sheet_name=sheet, header=None)
     header_row = 0
-    max_non_null = 0
+    max_nn = 0
     for i in range(min(10, len(df_raw))):
-        non_null = df_raw.iloc[i].notna().sum()
-        if non_null > max_non_null:
-            max_non_null = non_null
+        nn = df_raw.iloc[i].notna().sum()
+        if nn > max_nn:
+            max_nn = nn
             header_row = i
 
-    df = pd.read_excel(xls, sheet_name=sheet_used, header=header_row)
+    df = pd.read_excel(xls, sheet_name=sheet, header=header_row)
     df.columns = [str(c).strip() for c in df.columns]
 
+    # Rinomina colonne
     rename = {}
-    already_mapped = set()
-
-    # Match esatto
+    already = set()
     for orig, norm in SHIP_COLS_MAP.items():
-        if orig in df.columns and norm not in already_mapped:
+        if orig in df.columns and norm not in already:
             rename[orig] = norm
-            already_mapped.add(norm)
+            already.add(norm)
 
-    for orig, norm in SHIP_COLS_MAP.items():
-        if norm in already_mapped:
-            continue
-        for col in df.columns:
-            if col in rename:
-                continue
-            if orig.lower() in col.lower() or col.lower() in orig.lower():
-                rename[col] = norm
-                already_mapped.add(norm)
-                break
+    df = df.rename(columns=rename).dropna(how="all").reset_index(drop=True)
 
-    df = df.rename(columns=rename)
-    df = df.dropna(how="all").reset_index(drop=True)
-
+    # Numerici
     for col in _NUMERIC_COLS:
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors="coerce")
+
+    # Normalizza listed: "X" → True, anything else → False
+    if "listed" in df.columns:
+        df["is_listed"] = df["listed"].astype(str).str.strip().str.upper() == "X"
+    else:
+        df["is_listed"] = True  # fallback conservativo
+
+    # Calcola rating sintetico con fallback chain S&P → Fitch → Moody's → IFRS9
+    def _best_rating(row):
+        for col in ["rating_sp", "rating_fitch", "rating_moodys", "rating_ifrs9"]:
+            if col in row.index:
+                r = _normalize_rating(row[col])
+                if r and r != "NR":
+                    return r
+        return "NR"
+
+    df["rating_norm"] = df.apply(_best_rating, axis=1)
+
+    # Flag: la posizione è sotto soglia minima 474 (< BB) o non rated
+    df["rating_below_bb"] = df["rating_norm"].apply(
+        lambda r: r == "NR" or r not in RATING_MIN_474
+    )
+
+    # Flag: strumento escluso dal denominatore (derivati, repo…)
+    if "product_type" in df.columns:
+        df["escluso_calcolo"] = df["product_type"].isin(PRODUCT_TYPES_ESCLUSI)
+    else:
+        df["escluso_calcolo"] = False
 
     return df
 
 
 def get_gestioni(df: pd.DataFrame) -> list[str]:
-    """Restituisce lista univoca delle gestioni/fondi nel DB."""
     for c in ["denominazione_gestione", "codice_gestione"]:
         if c in df.columns:
-            vals = df[c].dropna().unique().tolist()
-            vals = sorted([str(v) for v in vals if str(v).strip()])
+            vals = sorted(df[c].dropna().astype(str).unique().tolist())
             if vals:
                 return vals
-
-    matches = [c for c in df.columns
-               if any(k in c.lower() for k in ["gestione", "fondo", "portfolio"])]
-    if matches:
-        vals = df[matches[0]].dropna().unique().tolist()
-        return sorted([str(v) for v in vals if str(v).strip()])
-
     return ["(tutte)"]
 
 
-def filter_by_gestione(df: pd.DataFrame, gestione: str) -> pd.DataFrame:
-    if gestione == "(tutte)":
-        return df
-    for col in ["denominazione_gestione", "codice_gestione"]:
-        if col in df.columns:
-            mask = df[col].astype(str).str.strip() == gestione.strip()
-            filtered = df[mask]
-            if len(filtered) > 0:
-                return filtered.reset_index(drop=True)
-    return df.reset_index(drop=True)
+def filter_portafoglio(df: pd.DataFrame,
+                       gestione: str | None = None,
+                       portafoglio: str | None = None) -> pd.DataFrame:
+    """Filtra per gestione e/o portafoglio e rimuove righe escluse dal calcolo."""
+    mask = pd.Series(True, index=df.index)
+    if gestione and gestione not in ("(tutte)", ""):
+        for col in ["denominazione_gestione", "codice_gestione"]:
+            if col in df.columns:
+                mask &= df[col].astype(str).str.strip() == gestione.strip()
+                break
+    if portafoglio and portafoglio not in ("(tutti)", ""):
+        for col in ["denominazione_portafoglio", "codice_portafoglio"]:
+            if col in df.columns:
+                mask &= df[col].astype(str).str.strip() == portafoglio.strip()
+                break
+    return df[mask].reset_index(drop=True)
