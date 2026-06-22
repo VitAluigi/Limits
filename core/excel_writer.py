@@ -9,7 +9,7 @@ import pandas as pd
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
-from core.analisi_474 import CheckResult
+from core.analisi import CheckResult
 
 # ── Palette ──────────────────────────────────────────────────────────────────
 C_BLUE     = "00338D"
