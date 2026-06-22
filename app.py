@@ -264,7 +264,7 @@ if st.session_state.df_ship is not None:
 
         df_show = pd.DataFrame(rows_474)
         st.dataframe(
-            df_show.style.applymap(_color_esito, subset=["Esito"]),
+            df_show.style.map(_color_esito, subset=["Esito"]),
             use_container_width=True, height=420,
         )
 
