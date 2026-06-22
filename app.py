@@ -196,7 +196,7 @@ if st.session_state.df_ship is not None:
                         tipo_fondo=tipo_fondo,
                     )
 
-                    from core.analisi_474 import check_regolamento
+                    from core.analisi import check_regolamento
                     results_reg = check_regolamento(df_sel, limiti_r) if limiti_r else []
 
                     st.session_state.results_474 = results_474
