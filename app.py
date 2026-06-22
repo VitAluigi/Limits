@@ -1,6 +1,6 @@
 """
 app.py
-Streamlit app — Verifica limiti fondi interni UL / Circolare ISVAP 474/D
+Streamlit app - Verifica limiti fondi interni UL / Circolare ISVAP 474/D
 """
 
 import streamlit as st
@@ -16,9 +16,9 @@ from core.ship_parser import load_ship, get_gestioni, filter_portafoglio
 from core.analisi import esegui_tutti_check, CheckResult
 from core.excel_writer import genera_excel
 
-# ── Page config ──────────────────────────────────────────────────────────────
+# -- Page config --------------------------------------------------------------
 st.set_page_config(
-    page_title="Verifica Limiti UL — 474/D",
+    page_title="Verifica Limiti UL - 474/D",
     layout="wide",
     initial_sidebar_state="expanded",
 )
@@ -26,15 +26,15 @@ st.set_page_config(
 st.markdown("""
 <style>
 .main-title { font-size:1.8rem; font-weight:700; color:#1F3864; margin-bottom:.2rem; }
-.sub-title  { font-size:1rem;  color:#5A5A5A;  margin-bottom:1.5rem; }
+.sub-title { font-size:1rem;  color:#5A5A5A;  margin-bottom:1.5rem; }
 div[data-testid="stDownloadButton"] button {
     background-color:#1F3864; color:white; font-weight:600;
     border-radius:6px; padding:.5rem 1.5rem; width:100%;
 }
-.esito-ok    { color:#276221; font-weight:700; }
-.esito-err   { color:#9C0006; font-weight:700; }
-.esito-warn  { color:#7D6608; font-weight:700; }
-.esito-gray  { color:#595959; }
+.esito-ok { color:#276221; font-weight:700; }
+.esito-err { color:#9C0006; font-weight:700; }
+.esito-warn { color:#7D6608; font-weight:700; }
+.esito-gray { color:#595959; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -43,13 +43,13 @@ st.markdown('<div class="main-title">Verifica Limiti Fondi Interni UL</div>',
 st.markdown('<div class="sub-title">Circolare ISVAP 474/D · Regolamento fondo</div>',
             unsafe_allow_html=True)
 
-# ── Session state ─────────────────────────────────────────────────────────────
+# -- Session state -------------------------------------------------------------
 for k in ["df_ship", "limiti_reg", "info_fondo", "results_474", "results_reg",
           "excel_bytes", "nome_fondo"]:
     if k not in st.session_state:
         st.session_state[k] = None
 
-# ── SIDEBAR ───────────────────────────────────────────────────────────────────
+# -- SIDEBAR -------------------------------------------------------------------
 with st.sidebar:
     st.markdown("### Caricamento file")
     st.divider()
@@ -66,8 +66,8 @@ with st.sidebar:
                     st.session_state.limiti_reg = estrai_limiti_regolamento(testo)
                     st.session_state.info_fondo = estrai_info_fondo(testo)
                     n = len(st.session_state.limiti_reg)
-                    nome = st.session_state.info_fondo.get("nome_fondo", "—")
-                    st.success(f"Estratti {n} limiti — Fondo: **{nome}**")
+                    nome = st.session_state.info_fondo.get("nome_fondo", "-")
+                    st.success(f"Estratti {n} limiti - Fondo: **{nome}**")
                 except Exception as e:
                     st.error(f"Errore: {e}")
 
@@ -84,7 +84,7 @@ with st.sidebar:
                     df = load_ship(ship_file.read())
                     st.session_state.df_ship = df
                     gestioni = get_gestioni(df)
-                    st.success(f"{len(df):,} posizioni — {len(gestioni)} gestioni")
+                    st.success(f"{len(df):,} posizioni - {len(gestioni)} gestioni")
                 except Exception as e:
                     st.error(f"Errore: {e}")
 
@@ -99,7 +99,7 @@ with st.sidebar:
     st.caption(f"Limite non quotati applicato: **{limite_nq}%**")
 
 
-# ── MAIN ──────────────────────────────────────────────────────────────────────
+# -- MAIN ----------------------------------------------------------------------
 
 # Stato caricamento
 col_s1, col_s2 = st.columns(2)
@@ -107,14 +107,14 @@ with col_s1:
     ok_ship = st.session_state.df_ship is not None
     n_pos = len(st.session_state.df_ship) if ok_ship else 0
     st.markdown(
-        f"{'OK' if ok_ship else 'KO'} **Portafoglio** — "
+        f"{'OK' if ok_ship else 'KO'} **Portafoglio** - "
         f"{'**' + str(n_pos) + ' posizioni**' if ok_ship else '_non caricato_'}"
     )
 with col_s2:
     ok_reg = st.session_state.limiti_reg is not None
     n_lim = len(st.session_state.limiti_reg) if ok_reg else 0
     st.markdown(
-        f"{'OK' if ok_reg else 'KO'} **Regolamento** — "
+        f"{'OK' if ok_reg else 'KO'} **Regolamento** - "
         f"{'**' + str(n_lim) + ' limiti**' if ok_reg else '_non caricato (solo check 474)_'}"
     )
 
@@ -123,14 +123,14 @@ st.divider()
 if st.session_state.df_ship is not None:
     df_all = st.session_state.df_ship.copy()
 
-    # ── Filtri gerarchici ────────────────────────────────────────────────────
+    # -- Filtri gerarchici ----------------------------------------------------
     st.markdown("### Seleziona portafoglio / gestione")
 
     FILTRI = [
-        ("tipo_gestione",             "Valuation Area"),
-        ("denominazione_impresa",     "Compagnia"),
+        ("tipo_gestione", "Valuation Area"),
+        ("denominazione_impresa", "Compagnia"),
         ("denominazione_portafoglio", "Portafoglio"),
-        ("denominazione_gestione",    "Gestione / SAG"),
+        ("denominazione_gestione", "Gestione / SAG"),
     ]
 
     col_f1, col_f2, col_f3, col_f4 = st.columns(4)
@@ -163,10 +163,10 @@ if st.session_state.df_ship is not None:
     kc2.metric("Posizioni", f"{len(df_sel):,}")
     kc3.metric("Emittenti",
                str(df_sel["denominazione_emittente"].nunique())
-               if "denominazione_emittente" in df_sel.columns else "—")
+               if "denominazione_emittente" in df_sel.columns else "-")
     kc4.metric("Gruppi emittente",
                str(df_sel["gruppo_emittente"].nunique())
-               if "gruppo_emittente" in df_sel.columns else "—")
+               if "gruppo_emittente" in df_sel.columns else "-")
 
     st.divider()
 
@@ -177,7 +177,7 @@ if st.session_state.df_ship is not None:
     if nome_fondo in ("(tutti)", ""):
         nome_fondo = "Portafoglio"
 
-    # ── Esegui check ────────────────────────────────────────────────────────
+    # -- Esegui check --------------------------------------------------------
     st.markdown("### Esegui verifica")
 
     if len(df_sel) == 0:
@@ -191,7 +191,7 @@ if st.session_state.df_ship is not None:
 
                     results_474 = esegui_tutti_check(
                         df_sel,
-                        limiti_regolamento=None,  # separati
+                        limiti_regolamento=None,
                         limite_non_quotati=limite_nq,
                         tipo_fondo=tipo_fondo,
                     )
@@ -217,7 +217,7 @@ if st.session_state.df_ship is not None:
                     st.error(f"Errore: {e}")
                     st.exception(e)
 
-    # ── Risultati ────────────────────────────────────────────────────────────
+    # -- Risultati ------------------------------------------------------------
     if st.session_state.results_474:
         results_474: list[CheckResult] = st.session_state.results_474
         results_reg: list[CheckResult] = st.session_state.results_reg or []
@@ -235,10 +235,10 @@ if st.session_state.df_ship is not None:
 
         st.markdown("#### Sintesi check Circolare 474/D")
         sc1, sc2, sc3, sc4 = st.columns(4)
-        sc1.metric("OK",              ok4)
-        sc2.metric("Sforamenti",      e4)
-        sc3.metric("Sotto minimo",    w4)
-        sc4.metric("Non rilevabile",  nr4)
+        sc1.metric("OK", ok4)
+        sc2.metric("Sforamenti", e4)
+        sc3.metric("Sotto minimo", w4)
+        sc4.metric("Non rilevabile", nr4)
 
         # Tabella risultati 474
         def _color_esito(val):
@@ -292,12 +292,12 @@ if st.session_state.df_ship is not None:
                 use_container_width=True, height=300,
             )
 
-    # ── Download Excel ───────────────────────────────────────────────────────
+    # -- Download Excel -------------------------------------------------------
     if st.session_state.excel_bytes:
         st.divider()
         fname = f"Verifica_474_{st.session_state.nome_fondo.replace(' ','_')}.xlsx"
         st.download_button(
-            label="📥 Scarica Excel verifica",
+            label="Scarica Excel verifica",
             data=st.session_state.excel_bytes,
             file_name=fname,
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -305,19 +305,19 @@ if st.session_state.df_ship is not None:
         )
         st.markdown("**Sheet inclusi nell'Excel:**")
         sheets_info = [
-            ("Verifica_474",          "Check Circolare 474/D — semaforo colorato"),
-            ("Verifica_Regolamento",  "Check regolamento fondo — semaforo colorato"),
-            ("Dettaglio_Emittenti",   "Concentrazione per singolo emittente (con soglia colore)"),
-            ("Dettaglio_Gruppi",      "Concentrazione per gruppo emittente"),
-            ("DB_Grezzo",             "Portafoglio SHIP filtrato"),
+            ("Verifica_474", "Check Circolare 474/D - semaforo colorato"),
+            ("Verifica_Regolamento", "Check regolamento fondo - semaforo colorato"),
+            ("Dettaglio_Emittenti", "Concentrazione per singolo emittente (con soglia colore)"),
+            ("Dettaglio_Gruppi", "Concentrazione per gruppo emittente"),
+            ("DB_Grezzo", "Portafoglio SHIP filtrato"),
             ("Limiti_Regolamento_Raw","Limiti estratti dal regolamento via Claude AI"),
-            ("Legenda",               "Legenda colori e note metodologiche"),
+            ("Legenda", "Legenda colori e note metodologiche"),
         ]
         for sheet, desc in sheets_info:
-            st.markdown(f"- **{sheet}** — {desc}")
+            st.markdown(f"- **{sheet}** - {desc}")
 
 else:
     st.info("Carica il file SHIP dalla sidebar per iniziare.")
 
 st.divider()
-st.caption("Verifica Limiti UL — Circolare ISVAP 474/D — v2.0")
+st.caption("Verifica Limiti UL - Circolare ISVAP 474/D - v2.0")
