@@ -1,106 +1,85 @@
-import anthropic
+"""
+claude_extractor.py
+Estrae limiti quantitativi dai PDF di normativa e regolamento via Claude API.
+"""
+
 import json
 import re
+import anthropic
 import streamlit as st
 
 MODEL = "claude-opus-4-6"
 
-def _get_client():
+
+def _client() -> anthropic.Anthropic:
     return anthropic.Anthropic(api_key=st.secrets["CLAUDE_API_KEY"])
 
-PROMPT_LIMITI_REG38 = """Sei un esperto di normativa assicurativa italiana. 
-Analizza il testo del Regolamento ISVAP n.38 e 24 fornito per la Classe C (Gestioni Separate) e Circolare 474 D del 21 febbraio 2002 per la Classe D (UL e IL) ed estrai TUTTI i limiti quantitativi 
-sugli investimenti delle gestioni separate e fondi interni assicurativi.
+
+def _call(prompt: str, max_tokens: int = 4096) -> str:
+    msg = _client().messages.create(
+        model=MODEL,
+        max_tokens=max_tokens,
+        messages=[{"role": "user", "content": prompt}],
+    )
+    return msg.content[0].text.strip()
+
+
+def _parse_json(text: str):
+    text = re.sub(r"```(?:json)?", "", text).strip().rstrip("`").strip()
+    m = re.search(r"(\[.*\]|\{.*\})", text, re.DOTALL)
+    if m:
+        text = m.group(1)
+    return json.loads(text)
+
+
+# ---------------------------------------------------------------------------
+# Prompt per il regolamento del fondo
+# ---------------------------------------------------------------------------
+PROMPT_REGOLAMENTO = """Sei un esperto di gestioni separate e fondi interni assicurativi italiani.
+Analizza il testo del regolamento del fondo/gestione fornito ed estrai TUTTI i limiti quantitativi
+di investimento previsti (non quelli di legge ma quelli specifici del fondo).
 
 Per ogni limite estrai:
-- categoria_asset: la categoria di attivo (es. "Titoli di Stato", "Obbligazioni corporate", "Azioni quotate", ecc.)
-- codice_ivass: eventuale codice/riferimento IVASS (es. "Art. 10 comma 2")
+- categoria_asset: la categoria di attivo (es. "Investimenti obbligazionari", "Investimenti azionari")
 - limite_max_pct: limite massimo in % del portafoglio (null se non previsto)
 - limite_min_pct: limite minimo in % (null se non previsto)
 - limite_emittente_pct: limite per singolo emittente in % (null se non previsto)
 - limite_controparte_pct: limite per singola controparte (null se non previsto)
-- note: eventuali condizioni o eccezioni importanti
-- articolo: articolo di riferimento
-
-Rispondi SOLO con un array JSON valido, nessun testo aggiuntivo, nessun markdown.
-Esempio formato:
-[
-  {
-    "categoria_asset": "Titoli di Stato UE",
-    "codice_ivass": "Art. 10 c.1",
-    "limite_max_pct": null,
-    "limite_min_pct": null,
-    "limite_emittente_pct": 35.0,
-    "limite_controparte_pct": null,
-    "note": "Derogabile fino al 100% per titoli garantiti dallo Stato",
-    "articolo": "Art. 10"
-  }
-]
-
-TESTO REGOLAMENTO N.38, N.24 e CIRCOLARE 474 D:
-{testo}
-"""
-
-PROMPT_LIMITI_REGOLAMENTO = """Sei un esperto di gestioni separate e fondi interni assicurativi italiani.
-Analizza il regolamento della gestione/fondo fornito ed estrai TUTTI i limiti di investimento 
-specifici previsti dal regolamento stesso (non quelli di legge).
-
-Per ogni limite estrai:
-- categoria_asset: la categoria di attivo
-- limite_max_pct: limite massimo in % (null se non previsto)
-- limite_min_pct: limite minimo in % (null se non previsto)
-- limite_emittente_pct: limite per singolo emittente in % (null se non previsto)
-- limite_controparte_pct: limite per singola controparte (null se non previsto)
-- note: condizioni specifiche
-- sezione: sezione/articolo del regolamento
+- note: condizioni o eccezioni rilevanti
+- sezione: sezione/paragrafo del regolamento
 
 Rispondi SOLO con un array JSON valido, nessun testo aggiuntivo, nessun markdown.
 
-TESTO REGOLAMENTO GESTIONE:
+TESTO REGOLAMENTO:
 {testo}
 """
 
-PROMPT_NOME_GESTIONE = """Dal testo del regolamento assicurativo fornito, estrai:
-- nome_gestione: il nome completo della gestione separata o del fondo
-- tipo: "gestione_separata" o "fondo_interno"
+
+# ---------------------------------------------------------------------------
+# Prompt per il nome/info del fondo
+# ---------------------------------------------------------------------------
+PROMPT_INFO_FONDO = """Dal testo del regolamento assicurativo fornito, estrai:
+- nome_fondo: il nome completo del fondo interno o gestione separata
+- tipo: "fondo_interno_ul" oppure "gestione_separata" oppure "fondo_pensione"
 - compagnia: nome della compagnia assicurativa (se presente)
+- tipo_prestazione: "non_previdenziale" oppure "previdenziale" (se desumibile)
 
 Rispondi SOLO con un oggetto JSON valido, nessun testo aggiuntivo.
-Esempio: {{"nome_gestione": "GESAV", "tipo": "gestione_separata", "compagnia": "Generali"}}
+Esempio: {{"nome_fondo": "Fondo Bilanciato", "tipo": "fondo_interno_ul",
+           "compagnia": "Generali", "tipo_prestazione": "non_previdenziale"}}
 
 TESTO:
 {testo}
 """
 
-def _call_claude(prompt: str, max_tokens: int = 4096) -> str:
-    msg = _get_client().messages.create(
-        model=MODEL,
-        max_tokens=max_tokens,
-        messages=[{"role": "user", "content": prompt}]
-    )
-    return msg.content[0].text.strip()
-
-def _parse_json_safe(text: str):
-    text = re.sub(r"```(?:json)?", "", text).strip().rstrip("`").strip()
-    match = re.search(r"(\[.*\]|\{.*\})", text, re.DOTALL)
-    if match:
-        text = match.group(1)
-    return json.loads(text)
-
-def estrai_limiti_reg38(testo_pdf: str) -> list[dict]:
-    testo = testo_pdf[:80000]
-    prompt = PROMPT_LIMITI_REG38.replace("{testo}", testo)
-    risposta = _call_claude(prompt, max_tokens=4096)
-    return _parse_json_safe(risposta)
 
 def estrai_limiti_regolamento(testo_pdf: str) -> list[dict]:
-    testo = testo_pdf[:80000]
-    prompt = PROMPT_LIMITI_REGOLAMENTO.replace("{testo}", testo)
-    risposta = _call_claude(prompt, max_tokens=4096)
-    return _parse_json_safe(risposta)
+    prompt = PROMPT_REGOLAMENTO.replace("{testo}", testo_pdf[:80000])
+    risposta = _call(prompt, max_tokens=4096)
+    return _parse_json(risposta)
 
-def estrai_info_gestione(testo_pdf: str) -> dict:
-    testo = testo_pdf[:10000]
-    prompt = PROMPT_NOME_GESTIONE.replace("{testo}", testo)
-    risposta = _call_claude(prompt, max_tokens=512)
-    return _parse_json_safe(risposta)
+
+def estrai_info_fondo(testo_pdf: str) -> dict:
+    prompt = PROMPT_INFO_FONDO.replace("{testo}", testo_pdf[:10000])
+    risposta = _call(prompt, max_tokens=512)
+    return _parse_json(risposta)
