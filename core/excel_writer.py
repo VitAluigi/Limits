@@ -1,292 +1,345 @@
+"""
+excel_writer.py
+Genera l'output Excel formattato con tutti i check 474 e regolamento.
+"""
+
 import io
+import datetime
 import pandas as pd
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
-import datetime
+from core.analisi_474 import CheckResult
 
-# Palette colori
-C_KPMG_BLUE = "00338D"
-C_KPMG_BLUE_LT = "4472C4"
-C_WHITE = "FFFFFF"
-C_BLACK = "000000"
-C_STRIPE = "F2F2F2"
-C_OK = "C6EFCE"
-C_WARN = "FFEB9C"
-C_ERR = "FFC7CE"
-C_BORDER = "BFBFBF"
+# ── Palette ──────────────────────────────────────────────────────────────────
+C_BLUE     = "00338D"
+C_BLUE_LT  = "4472C4"
+C_WHITE    = "FFFFFF"
+C_BLACK    = "000000"
+C_STRIPE   = "F2F2F2"
+C_OK       = "C6EFCE"   # verde chiaro
+C_WARN     = "FFEB9C"   # giallo
+C_ERR      = "FFC7CE"   # rosso chiaro
+C_BORDER   = "BFBFBF"
+C_GRAY     = "D9D9D9"
+C_HEADER_REG = "2E75B6"  # blu Regolamento
 
-# Font names
-F_LOGO = "KPMG Logo"
-F_BOLD = "KPMG Bold"
-F_BODY = "Arial"
+FONT_BODY = "Arial"
+FONT_LOGO = "KPMG Logo"
+FONT_BOLD = "KPMG Bold"
+SZ = 8
 SZ_HEAD = 14
-SZ_BODY = 8
 
 
-def _thin_border():
-    s = Side(style="thin", color=C_BORDER)
+def _side():
+    return Side(style="thin", color=C_BORDER)
+
+
+def _border():
+    s = _side()
     return Border(left=s, right=s, top=s, bottom=s)
 
 
-def _kpmg_header(ws, sheet_title: str):
+def _header_cell(ws, row, col, value, bg=C_BLUE):
+    c = ws.cell(row, col, str(value))
+    c.font = Font(name=FONT_BODY, size=SZ, bold=True, color=C_WHITE)
+    c.fill = PatternFill("solid", start_color=bg)
+    c.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+    c.border = _border()
+    ws.row_dimensions[row].height = 20
+
+
+def _data_cell(ws, row, col, value, stripe=False, fmt=None):
+    c = ws.cell(row, col, value)
+    c.font = Font(name=FONT_BODY, size=SZ, color=C_BLACK)
+    c.alignment = Alignment(vertical="center")
+    c.border = _border()
+    c.fill = PatternFill("solid", start_color=(C_STRIPE if stripe else C_WHITE))
+    if fmt:
+        c.number_format = fmt
+    ws.row_dimensions[row].height = 12
+
+
+def _kpmg_logo(ws, title: str):
     ws.sheet_view.showGridLines = False
-
-    # Logo
-    c2 = ws["B2"]
-    c2.value = "kpmg"
-    c2.font = Font(name=F_LOGO, size=SZ_HEAD, bold=False, color=C_KPMG_BLUE)
-    c2.alignment = Alignment(horizontal="left", vertical="center")
+    ws.column_dimensions["A"].width = 2
+    ws["B2"].value = "kpmg"
+    ws["B2"].font = Font(name=FONT_LOGO, size=SZ_HEAD, color=C_BLUE)
+    ws["B2"].alignment = Alignment(horizontal="left", vertical="center")
     ws.row_dimensions[2].height = 20
-
-    # B3 — titolo analisi
-    c3 = ws["B3"]
-    c3.value = sheet_title
-    c3.font = Font(name=F_BOLD, size=SZ_HEAD, bold=True, color=C_KPMG_BLUE)
-    c3.alignment = Alignment(horizontal="left", vertical="center")
+    ws["B3"].value = title
+    ws["B3"].font = Font(name=FONT_BOLD, size=SZ_HEAD, bold=True, color=C_BLUE)
+    ws["B3"].alignment = Alignment(horizontal="left", vertical="center")
     ws.row_dimensions[3].height = 20
-
-    # riga 4 — spazio
     ws.row_dimensions[4].height = 6
 
-    # colonna A — margine sinistro stretto
-    ws.column_dimensions["A"].width = 2
 
-
-def _table_header_row(ws, row_idx: int, columns, header_bg=C_KPMG_BLUE):
-    """Scrive una riga di intestazione tabella KPMG: sfondo blu, font Arial 8 bianco."""
-    ws.row_dimensions[row_idx].height = 19
-    for j, col in enumerate(columns, 2):
-        cell = ws.cell(row_idx, j, str(col))
-        cell.font = Font(name=F_BODY, size=SZ_BODY, bold=True, color=C_WHITE)
-        cell.fill = PatternFill("solid", start_color=header_bg)
-        cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
-        cell.border = _thin_border()
-
-
-def _table_data_row(ws, row_idx: int, values, columns, stripe=False):
-    """Scrive una riga dati tabella KPMG: font Arial 8 nero, altezza 12."""
-    ws.row_dimensions[row_idx].height = 12
-    bg = C_STRIPE if stripe else C_WHITE
-    for j, (val, col_name) in enumerate(zip(values, columns), 2):
-        cell = ws.cell(row_idx, j)
-        cell.value = val
-        cell.font = Font(name=F_BODY, size=SZ_BODY, color=C_BLACK)
-        cell.alignment = Alignment(vertical="center")
-        cell.border = _thin_border()
-        cell.fill = PatternFill("solid", start_color=bg)
-        if any(k in col_name.lower() for k in ["pct", "%"]):
-            cell.number_format = '0.00"%"'
-        elif any(k in col_name.lower() for k in ["valore", "mercato", "bilancio",
-                                                   "nominale", "acquisto", "rateo"]):
-            cell.number_format = '#,##0.00'
-
-def _auto_width(ws, start_col=2, min_w=8, max_w=45):
+def _auto_width(ws, start_col=2, min_w=8, max_w=60):
     for col in ws.iter_cols(min_col=start_col):
-        width = min_w
+        w = min_w
         for cell in col:
             if cell.value:
-                width = max(width, min(len(str(cell.value)) + 2, max_w))
-        ws.column_dimensions[get_column_letter(col[0].column)].width = width
+                w = max(w, min(len(str(cell.value)) + 3, max_w))
+        ws.column_dimensions[get_column_letter(col[0].column)].width = w
 
 
-def _write_kpmg_sheet(ws, df: pd.DataFrame, sheet_title: str,
-                      header_bg=C_KPMG_BLUE):
-    _kpmg_header(ws, sheet_title)
+ESITO_COLOR = {
+    "OK":                C_OK,
+    "SFORAMENTO MAX":    C_ERR,
+    "SFORAMENTO EMITTENTE": C_ERR,
+    "SOTTO MINIMO":      C_WARN,
+    "NON RILEVABILE":    C_GRAY,
+    "AVVISO":            C_WARN,
+}
 
-    if df.empty:
-        ws["B5"].value = "Nessun dato disponibile."
-        ws["B5"].font  = Font(name=F_BODY, size=SZ_BODY, color=C_BLACK)
+HEADERS_474 = [
+    "Norma", "Check", "Descrizione", "Art./§",
+    "Limite MAX %", "Limite MIN %",
+    "Valore effettivo %", "Esito", "Scostamento pp", "Dettaglio"
+]
+
+
+def _write_check_sheet(ws, results: list[CheckResult], title: str,
+                        header_bg=C_BLUE):
+    _kpmg_logo(ws, title)
+
+    if not results:
+        ws["B5"].value = "Nessun check disponibile."
+        ws["B5"].font = Font(name=FONT_BODY, size=SZ, color=C_BLACK)
         return
 
-    _table_header_row(ws, 5, df.columns, header_bg)
+    for j, h in enumerate(HEADERS_474, 2):
+        _header_cell(ws, 5, j, h, bg=header_bg)
 
-    for i, row in enumerate(df.itertuples(index=False), 6):
-        _table_data_row(ws, i, list(row), list(df.columns), stripe=(i % 2 == 0))
-
-    _auto_width(ws)
-
-
-def _write_verifica_sheet(ws, df: pd.DataFrame, sheet_title: str):
-    """
-    Sheet di verifica limiti con semaforo colorato.
-    Stessa struttura KPMG ma le righe dati cambiano colore in base all'esito.
-    """
-    _kpmg_header(ws, sheet_title)
-
-    if df.empty:
-        ws["B5"].value = "Nessun dato disponibile."
-        ws["B5"].font  = Font(name=F_BODY, size=SZ_BODY, color=C_BLACK)
-        return
-
-    _table_header_row(ws, 5, df.columns)
-
-    ESITO_BG = {
-        "OK": C_OK,
-        "SFORAMENTO MAX": C_ERR,
-        "SFORAMENTO EMITTENTE": C_ERR,
-        "SOTTO MINIMO": C_WARN,
-        "NON RILEVABILE": C_STRIPE,
-    }
-
-    for i, row in enumerate(df.itertuples(index=False), 6):
-        esito = getattr(row, "esito", "")
-        row_bg = ESITO_BG.get(esito, C_WHITE)
+    for i, r in enumerate(results, 6):
+        bg_row = ESITO_COLOR.get(r.esito, C_WHITE)
+        stripe = (i % 2 == 0)
+        vals = [
+            r.norma, r.check_id, r.descrizione, r.articolo,
+            r.limite_max_pct, r.limite_min_pct,
+            r.valore_effettivo_pct, r.esito, r.scostamento_pp, r.dettaglio,
+        ]
         ws.row_dimensions[i].height = 12
-        for j, (val, col_name) in enumerate(zip(list(row), list(df.columns)), 2):
-            cell = ws.cell(i, j)
-            cell.value = val
-            cell.font = Font(name=F_BODY, size=SZ_BODY, color=C_BLACK)
-            cell.alignment = Alignment(vertical="center")
-            cell.border = _thin_border()
-            cell.fill = PatternFill("solid", start_color=row_bg)
-            if "pct" in col_name.lower():
-                cell.number_format = '0.00"%"'
+        for j, val in enumerate(vals, 2):
+            c = ws.cell(i, j, val)
+            c.font = Font(name=FONT_BODY, size=SZ, color=C_BLACK)
+            c.alignment = Alignment(vertical="center")
+            c.border = _border()
+            c.fill = PatternFill("solid", start_color=bg_row)
+            # Formato numerico per le colonne %
+            if j in (6, 7, 8, 10) and isinstance(val, (int, float)):
+                c.number_format = '0.00"%"'
 
     _auto_width(ws)
 
 
-def _write_db_grezzo(ws, df: pd.DataFrame, nome_gestione: str):
+def _write_db_sheet(ws, df: pd.DataFrame):
     if df.empty:
         return
-
-    # Riga 1 — intestazione colonne, plain
     for j, col in enumerate(df.columns, 1):
-        cell = ws.cell(1, j, str(col))
-        cell.font = Font(name=F_BODY, size=SZ_BODY, bold=True, color=C_BLACK)
-        cell.alignment = Alignment(vertical="center", wrap_text=False)
-
-    # Righe dati — valori puri, nessun colore
+        c = ws.cell(1, j, str(col))
+        c.font = Font(name=FONT_BODY, size=SZ, bold=True)
+        c.alignment = Alignment(vertical="center")
     for i, row in enumerate(df.itertuples(index=False), 2):
-        for j, val in enumerate(list(row), 1):
-            cell = ws.cell(i, j)
-            cell.value = val
-            cell.font = Font(name=F_BODY, size=SZ_BODY, color=C_BLACK)
-            cell.alignment = Alignment(vertical="center")
-
-    # Auto width minimale
+        for j, val in enumerate(row, 1):
+            c = ws.cell(i, j, val)
+            c.font = Font(name=FONT_BODY, size=SZ)
+            c.alignment = Alignment(vertical="center")
     for col in ws.columns:
-        width = 8
+        w = 8
         for cell in col:
             if cell.value:
-                width = max(width, min(len(str(cell.value)) + 2, 40))
-        ws.column_dimensions[get_column_letter(col[0].column)].width = width
+                w = max(w, min(len(str(cell.value)) + 2, 40))
+        ws.column_dimensions[get_column_letter(col[0].column)].width = w
+
+
+def _write_dettaglio_sheet(ws, df: pd.DataFrame, title: str,
+                            col_gruppo: str, col_val: str, totale: float):
+    """Sheet di dettaglio concentrazione per emittente/gruppo."""
+    _kpmg_logo(ws, title)
+    if df.empty or col_gruppo not in df.columns or col_val not in df.columns:
+        ws["B5"].value = "Nessun dato disponibile."
+        return
+
+    excl = df.get("escluso_calcolo", pd.Series(False, index=df.index))
+    grp = (df.loc[~excl]
+             .groupby(col_gruppo)[col_val].sum()
+             .reset_index()
+             .sort_values(col_val, ascending=False)
+             .reset_index(drop=True))
+    grp["% portafoglio"] = (grp[col_val] / totale * 100).round(4)
+
+    hdrs = [col_gruppo.replace("_", " ").title(), "Valore (EUR)", "% portafoglio"]
+    for j, h in enumerate(hdrs, 2):
+        _header_cell(ws, 5, j, h)
+
+    for i, row in enumerate(grp.itertuples(index=False), 6):
+        stripe = (i % 2 == 0)
+        _data_cell(ws, i, 2, row[0], stripe)
+        _data_cell(ws, i, 3, row[1], stripe, "#,##0.00")
+        c = ws.cell(i, 4, row[2])
+        c.font = Font(name=FONT_BODY, size=SZ, color=C_BLACK)
+        c.border = _border()
+        c.number_format = '0.00"%"'
+        # Colore se > 10%
+        bg = C_ERR if row[2] > 10 else (C_WARN if row[2] > 5 else (C_STRIPE if stripe else C_WHITE))
+        c.fill = PatternFill("solid", start_color=bg)
+        ws.row_dimensions[i].height = 12
+
+    _auto_width(ws)
+
+
+def _write_legend_sheet(ws):
+    _kpmg_logo(ws, "Legenda e note metodologiche")
+    legenda = [
+        ("COLORE", "ESITO", "SIGNIFICATO"),
+        ("Verde",    "OK",                "Limite rispettato"),
+        ("Rosso",    "SFORAMENTO MAX",    "Valore effettivo supera il limite massimo"),
+        ("Giallo",   "SOTTO MINIMO",      "Valore effettivo inferiore al limite minimo"),
+        ("Grigio",   "NON RILEVABILE",    "Impossibile calcolare — dati mancanti o categoria non mappata"),
+    ]
+    COLORS = [C_BLUE, C_OK, C_ERR, C_WARN, C_GRAY]
+    for i, (col_color, esito, desc) in enumerate(legenda, 5):
+        bg = COLORS[i - 5]
+        for j, val in enumerate([col_color, esito, desc], 2):
+            c = ws.cell(i, j, val)
+            c.font = Font(name=FONT_BODY, size=SZ,
+                          bold=(i == 5), color=C_WHITE if i == 5 else C_BLACK)
+            c.fill = PatternFill("solid", start_color=bg)
+            c.border = _border()
+            c.alignment = Alignment(vertical="center")
+        ws.row_dimensions[i].height = 14
+
+    note_row = 11
+    ws.cell(note_row, 2, "Note metodologiche:").font = Font(name=FONT_BODY, size=SZ, bold=True)
+    note_row += 1
+    notes = [
+        "• Valore di riferimento: Total Market Value LC (in valuta locale).",
+        "• Denominatore: totale portafoglio esclusi derivati OTC, repo, cash collateral.",
+        "• Rating: fallback chain S&P → Fitch → Moody's → IFRS9. Titoli azionari esenti.",
+        "• Quotato: 'Indicator: Listed on Exchange' = X. Blank = non quotato.",
+        "• Limite emittente 474: esclude Gov Bond UE / sovrannazionali con rating AAA.",
+        "• Limite gruppo: basato su 'Issuer Ultimate Parent Numb Name' del SHIP.",
+        "• I limiti di regolamento sono estratti via Claude AI dal PDF del regolamento.",
+    ]
+    for note in notes:
+        c = ws.cell(note_row, 2, note)
+        c.font = Font(name=FONT_BODY, size=SZ, color=C_BLACK)
+        ws.row_dimensions[note_row].height = 14
+        note_row += 1
+
+    _auto_width(ws)
+
+
+# ---------------------------------------------------------------------------
+# Funzione principale
+# ---------------------------------------------------------------------------
 
 def genera_excel(
     df_portafoglio: pd.DataFrame,
-    df_cat: pd.DataFrame,
-    df_emit: pd.DataFrame,
-    df_paesi: pd.DataFrame,
-    df_valute: pd.DataFrame,
-    df_verifica_reg38: pd.DataFrame,
-    df_verifica_reg: pd.DataFrame,
-    limiti_reg38: list,
-    limiti_regolamento: list,
-    nome_gestione: str,
-    info_gestione: dict,
+    results_474: list[CheckResult],
+    results_reg: list[CheckResult],
+    limiti_regolamento: list[dict],
+    info_fondo: dict,
+    nome_fondo: str = "Fondo",
 ) -> bytes:
-    """Genera l'Excel completo KPMG-styled e restituisce bytes."""
-
     wb = Workbook()
 
-    # 0. Cover
+    # ── COVER ────────────────────────────────────────────────────────────────
     ws_cover = wb.active
     ws_cover.title = "Cover"
     ws_cover.sheet_view.showGridLines = False
     ws_cover.column_dimensions["A"].width = 2
-    ws_cover.column_dimensions["B"].width = 30
-    ws_cover.column_dimensions["C"].width = 45
+    ws_cover.column_dimensions["B"].width = 32
+    ws_cover.column_dimensions["C"].width = 48
 
-    # B2 logo
-    c2 = ws_cover["B2"]
-    c2.value = "KPMG"
-    c2.font  = Font(name=F_LOGO, size=18, color=C_KPMG_BLUE)
-    c2.alignment = Alignment(horizontal="left", vertical="center")
-    ws_cover.row_dimensions[2].height = 26
+    ws_cover["B2"].value = "KPMG"
+    ws_cover["B2"].font = Font(name=FONT_LOGO, size=18, color=C_BLUE)
+    ws_cover["B2"].alignment = Alignment(horizontal="left", vertical="center")
+    ws_cover.row_dimensions[2].height = 28
 
-    # B3 titolo
-    c3 = ws_cover["B3"]
-    c3.value = "Analisi Limiti di Investimento"
-    c3.font  = Font(name=F_BOLD, size=14, bold=True, color=C_KPMG_BLUE)
-    c3.alignment = Alignment(horizontal="left", vertical="center")
+    ws_cover["B3"].value = "Verifica Limiti Fondi Interni UL — Circolare ISVAP 474/D"
+    ws_cover["B3"].font = Font(name=FONT_BOLD, size=14, bold=True, color=C_BLUE)
+    ws_cover["B3"].alignment = Alignment(horizontal="left", vertical="center")
     ws_cover.row_dimensions[3].height = 22
 
-    # B4 sottotitolo gestione
-    c4 = ws_cover["B4"]
-    c4.value = nome_gestione
-    c4.font = Font(name=F_BODY, size=11, color=C_KPMG_BLUE)
-    c4.alignment = Alignment(horizontal="left", vertical="center")
+    ws_cover["B4"].value = nome_fondo
+    ws_cover["B4"].font = Font(name=FONT_BODY, size=11, color=C_BLUE)
     ws_cover.row_dimensions[4].height = 18
+    ws_cover.row_dimensions[5].height = 10
 
-    ws_cover.row_dimensions[5].height = 10  # spazio
+    col_val = "valore_mercato" if "valore_mercato" in df_portafoglio.columns else "valore_bilancio"
+    excl = df_portafoglio.get("escluso_calcolo", pd.Series(False, index=df_portafoglio.index))
+    tot = df_portafoglio.loc[~excl, col_val].sum() if col_val in df_portafoglio.columns else 0
 
     meta = [
-        ("Gestione / Fondo", info_gestione.get("nome_gestione", nome_gestione)),
-        ("Tipo", info_gestione.get("tipo", "—")),
-        ("Compagnia", info_gestione.get("compagnia", "—")),
-        ("Data elaborazione", datetime.date.today().strftime("%d/%m/%Y")),
-        ("N. posizioni", len(df_portafoglio)),
-        ("Totale portafoglio (EUR)",
-         f"{df_portafoglio['valore_mercato'].sum():,.2f}"
-         if "valore_mercato" in df_portafoglio.columns else "—"),
+        ("Fondo / Gestione",     info_fondo.get("nome_fondo", nome_fondo)),
+        ("Tipo",                  info_fondo.get("tipo", "—")),
+        ("Compagnia",             info_fondo.get("compagnia", "—")),
+        ("Tipo prestazione",      info_fondo.get("tipo_prestazione", "non_previdenziale")),
+        ("Data elaborazione",     datetime.date.today().strftime("%d/%m/%Y")),
+        ("N. posizioni",          f"{len(df_portafoglio):,}"),
+        ("Totale portafoglio",    f"€ {tot:,.2f}"),
+        ("Check 474 eseguiti",    str(len(results_474))),
+        ("Check regolamento",     str(len(results_reg))),
     ]
-    for r, (label, val) in enumerate(meta, 6):
-        lbl = ws_cover.cell(r, 2, label)
-        lbl.font = Font(name=F_BODY, size=9, bold=True, color=C_BLACK)
-        lbl.alignment = Alignment(vertical="center")
-        vl = ws_cover.cell(r, 3, val)
-        vl.font = Font(name=F_BODY, size=9, color=C_BLACK)
-        vl.alignment = Alignment(vertical="center")
+    for r, (lbl, val) in enumerate(meta, 6):
+        lc = ws_cover.cell(r, 2, lbl)
+        lc.font = Font(name=FONT_BODY, size=9, bold=True)
+        vc = ws_cover.cell(r, 3, val)
+        vc.font = Font(name=FONT_BODY, size=9)
         ws_cover.row_dimensions[r].height = 16
 
-    # ── 1. DB Grezzo ──────────────────────────────────────────────────────────
+    # ── SHEET 474 ─────────────────────────────────────────────────────────────
+    ws_474 = wb.create_sheet("Verifica_474")
+    _write_check_sheet(ws_474, results_474,
+                       "Verifica limiti — Circolare ISVAP 474/D",
+                       header_bg=C_BLUE)
+
+    # ── SHEET REGOLAMENTO ─────────────────────────────────────────────────────
+    if results_reg:
+        ws_reg = wb.create_sheet("Verifica_Regolamento")
+        _write_check_sheet(ws_reg, results_reg,
+                           "Verifica limiti — Regolamento fondo",
+                           header_bg=C_HEADER_REG)
+
+    # ── DETTAGLIO EMITTENTI ───────────────────────────────────────────────────
+    if "denominazione_emittente" in df_portafoglio.columns and col_val in df_portafoglio.columns:
+        ws_emit = wb.create_sheet("Dettaglio_Emittenti")
+        _write_dettaglio_sheet(ws_emit, df_portafoglio,
+                               "Concentrazione per emittente",
+                               "denominazione_emittente", col_val, tot)
+
+    # ── DETTAGLIO GRUPPI ──────────────────────────────────────────────────────
+    if "gruppo_emittente" in df_portafoglio.columns and col_val in df_portafoglio.columns:
+        ws_grp = wb.create_sheet("Dettaglio_Gruppi")
+        _write_dettaglio_sheet(ws_grp, df_portafoglio,
+                               "Concentrazione per gruppo emittente",
+                               "gruppo_emittente", col_val, tot)
+
+    # ── DB GREZZO ─────────────────────────────────────────────────────────────
     ws_db = wb.create_sheet("DB_Grezzo")
-    _write_db_grezzo(ws_db, df_portafoglio, nome_gestione)
+    # Mostra solo colonne rilevanti per non appesantire
+    cols_show = [c for c in df_portafoglio.columns
+                 if c not in ("escluso_calcolo",)]
+    _write_db_sheet(ws_db, df_portafoglio[cols_show].head(2000))
 
-    # ── 2. Analisi Categorie ──────────────────────────────────────────────────
-    if not df_cat.empty:
-        ws_cat = wb.create_sheet("Analisi_Categorie")
-        _write_kpmg_sheet(ws_cat, df_cat, "Composizione per categoria IVASS / CIC")
-
-    # ── 3. Analisi Emittenti ─────────────────────────────────────────────────
-    if not df_emit.empty:
-        ws_emit = wb.create_sheet("Analisi_Emittenti")
-        _write_kpmg_sheet(ws_emit, df_emit, "Concentrazione per emittente")
-
-    # ── 4. Analisi Paesi ─────────────────────────────────────────────────────
-    if not df_paesi.empty:
-        ws_paesi = wb.create_sheet("Analisi_Paesi")
-        _write_kpmg_sheet(ws_paesi, df_paesi, "Esposizione per paese")
-
-    # ── 5. Analisi Valute ────────────────────────────────────────────────────
-    if not df_valute.empty:
-        ws_val = wb.create_sheet("Analisi_Valute")
-        _write_kpmg_sheet(ws_val, df_valute, "Esposizione per valuta")
-
-    # ── 6. Verifica Normativa IVASS ───────────────────────────────────────────
-    if not df_verifica_reg38.empty:
-        ws_v38 = wb.create_sheet("Verifica_Reg38")
-        _write_verifica_sheet(ws_v38, df_verifica_reg38,
-                              "Verifica limiti — Normativa IVASS")
-
-    # ── 7. Verifica Regolamento Gestione ─────────────────────────────────────
-    if not df_verifica_reg.empty:
-        ws_vreg = wb.create_sheet("Verifica_Regolamento")
-        _write_verifica_sheet(ws_vreg, df_verifica_reg,
-                              "Verifica limiti — Regolamento gestione")
-
-    # ── 8. Limiti Raw ─────────────────────────────────────────────────────────
-    if limiti_reg38:
-        ws_lr38 = wb.create_sheet("Limiti_Reg38_Raw")
-        _write_kpmg_sheet(ws_lr38, pd.DataFrame(limiti_reg38),
-                          "Limiti estratti — Normativa IVASS")
-
+    # ── LIMITI REGOLAMENTO RAW ────────────────────────────────────────────────
     if limiti_regolamento:
-        ws_lreg = wb.create_sheet("Limiti_Regolamento_Raw")
-        _write_kpmg_sheet(ws_lreg, pd.DataFrame(limiti_regolamento),
-                          "Limiti estratti — Regolamento gestione")
+        ws_lim = wb.create_sheet("Limiti_Regolamento_Raw")
+        _kpmg_logo(ws_lim, "Limiti estratti dal regolamento (Claude AI)")
+        df_lim = pd.DataFrame(limiti_regolamento)
+        for j, h in enumerate(df_lim.columns, 2):
+            _header_cell(ws_lim, 5, j, str(h))
+        for i, row in enumerate(df_lim.itertuples(index=False), 6):
+            for j, val in enumerate(row, 2):
+                _data_cell(ws_lim, i, j, val, stripe=(i % 2 == 0))
+        _auto_width(ws_lim)
 
-    # ── Output ────────────────────────────────────────────────────────────────
+    # ── LEGENDA ───────────────────────────────────────────────────────────────
+    ws_leg = wb.create_sheet("Legenda")
+    _write_legend_sheet(ws_leg)
+
     buf = io.BytesIO()
     wb.save(buf)
     buf.seek(0)
