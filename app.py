@@ -288,7 +288,7 @@ if st.session_state.df_ship is not None:
                 })
             df_reg_show = pd.DataFrame(rows_reg)
             st.dataframe(
-                df_reg_show.style.applymap(_color_esito, subset=["Esito"]),
+                df_reg_show.style.map(_color_esito, subset=["Esito"]),
                 use_container_width=True, height=300,
             )
 
