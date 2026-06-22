@@ -11,7 +11,7 @@ from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 from core.analisi import CheckResult
 
-# ── Palette ──────────────────────────────────────────────────────────────────
+# -- Palette ------------------------------------------------------------------
 C_BLUE     = "00338D"
 C_BLUE_LT  = "4472C4"
 C_WHITE    = "FFFFFF"
@@ -245,7 +245,7 @@ def genera_excel(
 ) -> bytes:
     wb = Workbook()
 
-    # ── COVER ────────────────────────────────────────────────────────────────
+    # -- COVER ----------------------------------------------------------------
     ws_cover = wb.active
     ws_cover.title = "Cover"
     ws_cover.sheet_view.showGridLines = False
@@ -290,41 +290,41 @@ def genera_excel(
         vc.font = Font(name=FONT_BODY, size=9)
         ws_cover.row_dimensions[r].height = 16
 
-    # ── SHEET 474 ─────────────────────────────────────────────────────────────
+    # -- SHEET 474 -------------------------------------------------------------
     ws_474 = wb.create_sheet("Verifica_474")
     _write_check_sheet(ws_474, results_474,
                        "Verifica limiti — Circolare ISVAP 474/D",
                        header_bg=C_BLUE)
 
-    # ── SHEET REGOLAMENTO ─────────────────────────────────────────────────────
+    # -- SHEET REGOLAMENTO -----------------------------------------------------
     if results_reg:
         ws_reg = wb.create_sheet("Verifica_Regolamento")
         _write_check_sheet(ws_reg, results_reg,
                            "Verifica limiti — Regolamento fondo",
                            header_bg=C_HEADER_REG)
 
-    # ── DETTAGLIO EMITTENTI ───────────────────────────────────────────────────
+    # -- DETTAGLIO EMITTENTI ---------------------------------------------------
     if "denominazione_emittente" in df_portafoglio.columns and col_val in df_portafoglio.columns:
         ws_emit = wb.create_sheet("Dettaglio_Emittenti")
         _write_dettaglio_sheet(ws_emit, df_portafoglio,
                                "Concentrazione per emittente",
                                "denominazione_emittente", col_val, tot)
 
-    # ── DETTAGLIO GRUPPI ──────────────────────────────────────────────────────
+    # -- DETTAGLIO GRUPPI ------------------------------------------------------
     if "gruppo_emittente" in df_portafoglio.columns and col_val in df_portafoglio.columns:
         ws_grp = wb.create_sheet("Dettaglio_Gruppi")
         _write_dettaglio_sheet(ws_grp, df_portafoglio,
                                "Concentrazione per gruppo emittente",
                                "gruppo_emittente", col_val, tot)
 
-    # ── DB GREZZO ─────────────────────────────────────────────────────────────
+    # -- DB GREZZO -------------------------------------------------------------
     ws_db = wb.create_sheet("DB_Grezzo")
     # Mostra solo colonne rilevanti per non appesantire
     cols_show = [c for c in df_portafoglio.columns
                  if c not in ("escluso_calcolo",)]
     _write_db_sheet(ws_db, df_portafoglio[cols_show].head(2000))
 
-    # ── LIMITI REGOLAMENTO RAW ────────────────────────────────────────────────
+    # -- LIMITI REGOLAMENTO RAW ------------------------------------------------
     if limiti_regolamento:
         ws_lim = wb.create_sheet("Limiti_Regolamento_Raw")
         _kpmg_logo(ws_lim, "Limiti estratti dal regolamento (Claude AI)")
@@ -336,7 +336,7 @@ def genera_excel(
                 _data_cell(ws_lim, i, j, val, stripe=(i % 2 == 0))
         _auto_width(ws_lim)
 
-    # ── LEGENDA ───────────────────────────────────────────────────────────────
+    # -- LEGENDA ---------------------------------------------------------------
     ws_leg = wb.create_sheet("Legenda")
     _write_legend_sheet(ws_leg)
 
