@@ -1,5 +1,5 @@
 """
-analisi_474.py
+analisi.py
 Motore di verifica dei limiti della Circolare ISVAP 474/D (fondi interni UL/IL).
 Ogni check è una funzione autonoma che restituisce un dizionario con:
   - descrizione, valore_effettivo_pct, limite_pct, esito, dettaglio
@@ -146,7 +146,7 @@ def check_short_selling(df: pd.DataFrame) -> CheckResult:
 
     esito, sc = _esito(short_pct, 0.0)
     return CheckResult(
-        norma="Circ. 474/D §2",
+        norma="Circ. 474/D Par.2",
         check_id="474_SHORT",
         descrizione="Divieto vendite allo scoperto",
         limite_max_pct=0.0,
@@ -155,7 +155,7 @@ def check_short_selling(df: pd.DataFrame) -> CheckResult:
         esito=esito if short_pct > 0 else "OK",
         scostamento_pp=sc if short_pct > 0 else None,
         dettaglio=det,
-        articolo="§2 Circ. 474/D",
+        articolo="Par.2 Circ. 474/D",
     )
 
 
@@ -180,7 +180,7 @@ def check_commodities(df: pd.DataFrame) -> CheckResult:
 
     esito, sc = ("OK", None) if commod_pct == 0 else ("SFORAMENTO MAX", commod_pct)
     return CheckResult(
-        norma="Circ. 474/D §2",
+        norma="Circ. 474/D Par.2",
         check_id="474_COMMOD",
         descrizione="Divieto investimento in merci / commodities",
         limite_max_pct=0.0,
@@ -189,7 +189,7 @@ def check_commodities(df: pd.DataFrame) -> CheckResult:
         esito=esito,
         scostamento_pp=sc,
         dettaglio=det,
-        articolo="§2 Circ. 474/D",
+        articolo="Par.2 Circ. 474/D",
     )
 
 
@@ -205,7 +205,7 @@ def check_monetari(df: pd.DataFrame) -> CheckResult:
     tot = _totale(df)
 
     if col_val is None or tot == 0:
-        return CheckResult("Circ. 474/D §2", "474_MONET",
+        return CheckResult("Circ. 474/D Par.2", "474_MONET",
                            "Strumenti monetari ≤ 20%", LIMITE, None,
                            0.0, "NON RILEVABILE", None,
                            "Colonna valore non trovata")
@@ -226,7 +226,7 @@ def check_monetari(df: pd.DataFrame) -> CheckResult:
     det = (f"Strumenti monetari: €{val:,.0f} ({pct:.2f}% su tot. €{tot:,.0f}). "
            f"Posizioni: {mask.sum()}")
     return CheckResult(
-        norma="Circ. 474/D §2",
+        norma="Circ. 474/D Par.2",
         check_id="474_MONET",
         descrizione="Strumenti monetari ≤ 20% del fondo",
         limite_max_pct=LIMITE,
@@ -235,7 +235,7 @@ def check_monetari(df: pd.DataFrame) -> CheckResult:
         esito=esito,
         scostamento_pp=sc,
         dettaglio=det,
-        articolo="§2 Circ. 474/D",
+        articolo="Par.2 Circ. 474/D",
     )
 
 
@@ -251,7 +251,7 @@ def check_non_quotati(df: pd.DataFrame,
     tot = _totale(df)
 
     if col_val is None or tot == 0:
-        return CheckResult("Circ. 474/D §2", "474_NQUOT",
+        return CheckResult("Circ. 474/D Par.2", "474_NQUOT",
                            f"Non quotati ≤ {limite_pct}%", limite_pct, None,
                            0.0, "NON RILEVABILE", None)
 
@@ -280,7 +280,7 @@ def check_non_quotati(df: pd.DataFrame,
         det = f"Non quotati: €{val:,.0f} ({pct:.2f}%)"
 
     return CheckResult(
-        norma="Circ. 474/D §2",
+        norma="Circ. 474/D Par.2",
         check_id="474_NQUOT",
         descrizione=f"Titoli non quotati ≤ {limite_pct}% ({tipo_fondo})",
         limite_max_pct=limite_pct,
@@ -289,7 +289,7 @@ def check_non_quotati(df: pd.DataFrame,
         esito=esito,
         scostamento_pp=sc,
         dettaglio=det,
-        articolo="§2 Circ. 474/D",
+        articolo="Par.2 Circ. 474/D",
     )
 
 
@@ -302,7 +302,7 @@ def check_rating_minimo(df: pd.DataFrame, limite_pct: float = 5.0) -> CheckResul
     tot = _totale(df)
 
     if col_val is None or tot == 0 or "rating_norm" not in df.columns:
-        return CheckResult("Circ. 474/D §1", "474_RATING",
+        return CheckResult("Circ. 474/D Par.1", "474_RATING",
                            f"Rating < BB o NR ≤ {limite_pct}%", limite_pct, None,
                            0.0, "NON RILEVABILE", None, "Colonna rating non disponibile")
 
@@ -335,7 +335,7 @@ def check_rating_minimo(df: pd.DataFrame, limite_pct: float = 5.0) -> CheckResul
         det = f"< BB o NR: €{val:,.0f} ({pct:.2f}%)"
 
     return CheckResult(
-        norma="Circ. 474/D §1",
+        norma="Circ. 474/D Par.1",
         check_id="474_RATING",
         descrizione=f"Titoli rating < BB o NR ≤ {limite_pct}% del fondo",
         limite_max_pct=limite_pct,
@@ -344,7 +344,7 @@ def check_rating_minimo(df: pd.DataFrame, limite_pct: float = 5.0) -> CheckResul
         esito=esito,
         scostamento_pp=sc,
         dettaglio=det,
-        articolo="§1 Circ. 474/D",
+        articolo="Par.1 Circ. 474/D",
     )
 
 
@@ -365,7 +365,7 @@ def check_concentrazione_emittente(df: pd.DataFrame,
     tot = _totale(df)
 
     if not col_emit or col_val is None or tot == 0:
-        return [CheckResult("Circ. 474/D §2", "474_EMIT",
+        return [CheckResult("Circ. 474/D Par.2", "474_EMIT",
                             f"Concentrazione per emittente ≤ {limite_pct}%",
                             limite_pct, None, 0.0, "NON RILEVABILE", None,
                             "Colonna emittente o valore non trovata")]
@@ -399,7 +399,7 @@ def check_concentrazione_emittente(df: pd.DataFrame,
         det += f" | SFORA: {', '.join(f'{k} ({v:.2f}%)' for k, v in emit_sfora.items())}"
 
     results.append(CheckResult(
-        norma="Circ. 474/D §2",
+        norma="Circ. 474/D Par.2",
         check_id="474_EMIT",
         descrizione=f"Concentrazione emittente ≤ {limite_pct}% (ex Gov AAA)",
         limite_max_pct=limite_pct,
@@ -408,13 +408,13 @@ def check_concentrazione_emittente(df: pd.DataFrame,
         esito=esito,
         scostamento_pp=sc,
         dettaglio=det,
-        articolo="§2 Circ. 474/D",
+        articolo="Par.2 Circ. 474/D",
     ))
 
     # Una riga per ogni emittente in sforamento
     for emit, pct_v in emit_sfora.items():
         results.append(CheckResult(
-            norma="Circ. 474/D §2",
+            norma="Circ. 474/D Par.2",
             check_id="474_EMIT_DET",
             descrizione=f"  ↳ Emittente: {emit}",
             limite_max_pct=limite_pct,
@@ -423,7 +423,7 @@ def check_concentrazione_emittente(df: pd.DataFrame,
             esito="SFORAMENTO MAX",
             scostamento_pp=round(float(pct_v) - limite_pct, 4),
             dettaglio=f"Valore: €{grp.get(emit, 0):,.0f}",
-            articolo="§2 Circ. 474/D",
+            articolo="Par.2 Circ. 474/D",
         ))
 
     return results
@@ -440,7 +440,7 @@ def check_concentrazione_gruppo(df: pd.DataFrame,
     tot = _totale(df)
 
     if not col_gruppo or col_val is None or tot == 0:
-        return [CheckResult("Circ. 474/D §2", "474_GRUPPO",
+        return [CheckResult("Circ. 474/D Par.2", "474_GRUPPO",
                             f"Concentrazione gruppo ≤ {limite_pct}%",
                             limite_pct, None, 0.0, "NON RILEVABILE", None,
                             "Colonna 'Issuer Ultimate Parent' non trovata")]
@@ -462,7 +462,7 @@ def check_concentrazione_gruppo(df: pd.DataFrame,
         det += f" | SFORA: {', '.join(f'{k} ({v:.2f}%)' for k, v in gruppi_sfora.items())}"
 
     results.append(CheckResult(
-        norma="Circ. 474/D §2",
+        norma="Circ. 474/D Par.2",
         check_id="474_GRUPPO",
         descrizione=f"Concentrazione gruppo emittente ≤ {limite_pct}%",
         limite_max_pct=limite_pct,
@@ -471,12 +471,12 @@ def check_concentrazione_gruppo(df: pd.DataFrame,
         esito=esito,
         scostamento_pp=sc,
         dettaglio=det,
-        articolo="§2 Circ. 474/D (circ. 551 integraz.)",
+        articolo="Par.2 Circ. 474/D (circ. 551 integraz.)",
     ))
 
     for gruppo, pct_v in gruppi_sfora.items():
         results.append(CheckResult(
-            norma="Circ. 474/D §2",
+            norma="Circ. 474/D Par.2",
             check_id="474_GRUPPO_DET",
             descrizione=f"  ↳ Gruppo: {gruppo}",
             limite_max_pct=limite_pct,
@@ -485,7 +485,7 @@ def check_concentrazione_gruppo(df: pd.DataFrame,
             esito="SFORAMENTO MAX",
             scostamento_pp=round(float(pct_v) - limite_pct, 4),
             dettaglio=f"Valore: €{grp.get(gruppo, 0):,.0f}",
-            articolo="§2 Circ. 474/D",
+            articolo="Par.2 Circ. 474/D",
         ))
 
     return results
@@ -502,7 +502,7 @@ def check_oicr_non_armonizzati(df: pd.DataFrame,
     tot = _totale(df)
 
     if not col_ft or col_val is None or tot == 0:
-        return CheckResult("Circ. 474/D §2", "474_AIF",
+        return CheckResult("Circ. 474/D Par.2", "474_AIF",
                            f"OICR non armonizzati (AIF) ≤ {limite_pct}%",
                            limite_pct, None, 0.0, "NON RILEVABILE", None,
                            "Colonna Fund Type non disponibile")
@@ -523,7 +523,7 @@ def check_oicr_non_armonizzati(df: pd.DataFrame,
         det = f"AIF totale: €{val:,.0f} ({pct:.2f}%)"
 
     return CheckResult(
-        norma="Circ. 474/D §2",
+        norma="Circ. 474/D Par.2",
         check_id="474_AIF",
         descrizione=f"OICR non armonizzati (AIF) ≤ {limite_pct}% del fondo",
         limite_max_pct=limite_pct,
@@ -532,7 +532,7 @@ def check_oicr_non_armonizzati(df: pd.DataFrame,
         esito=esito,
         scostamento_pp=sc,
         dettaglio=det,
-        articolo="§2 Circ. 474/D",
+        articolo="Par.2 Circ. 474/D",
     )
 
 
@@ -548,7 +548,7 @@ def check_singolo_ucits(df: pd.DataFrame,
     tot = _totale(df)
 
     if not col_ft or not col_isin or col_val is None or tot == 0:
-        return [CheckResult("Circ. 474/D §2", "474_UCITS",
+        return [CheckResult("Circ. 474/D Par.2", "474_UCITS",
                             f"Singolo OICR UCITS ≤ {limite_pct}%",
                             limite_pct, None, 0.0, "NON RILEVABILE", None,
                             "Colonne Fund Type / ISIN non disponibili")]
@@ -558,7 +558,7 @@ def check_singolo_ucits(df: pd.DataFrame,
     df_ucits = df.loc[mask_ucits]
 
     if df_ucits.empty:
-        return [CheckResult("Circ. 474/D §2", "474_UCITS",
+        return [CheckResult("Circ. 474/D Par.2", "474_UCITS",
                             f"Singolo OICR UCITS ≤ {limite_pct}%",
                             limite_pct, None, 0.0, "OK", None,
                             "Nessun OICR UCITS presente")]
@@ -575,7 +575,7 @@ def check_singolo_ucits(df: pd.DataFrame,
         det += f" | SFORA: {', '.join(f'{k} ({v:.2f}%)' for k,v in sfora.items())}"
 
     results.append(CheckResult(
-        norma="Circ. 474/D §2",
+        norma="Circ. 474/D Par.2",
         check_id="474_UCITS",
         descrizione=f"Singolo OICR UCITS ≤ {limite_pct}%",
         limite_max_pct=limite_pct,
@@ -584,12 +584,12 @@ def check_singolo_ucits(df: pd.DataFrame,
         esito=esito,
         scostamento_pp=sc,
         dettaglio=det,
-        articolo="§2 Circ. 474/D",
+        articolo="Par.2 Circ. 474/D",
     ))
 
     for isin, pct_v in sfora.items():
         results.append(CheckResult(
-            norma="Circ. 474/D §2",
+            norma="Circ. 474/D Par.2",
             check_id="474_UCITS_DET",
             descrizione=f"  ↳ UCITS: {isin}",
             limite_max_pct=limite_pct,
@@ -598,7 +598,7 @@ def check_singolo_ucits(df: pd.DataFrame,
             esito="SFORAMENTO MAX",
             scostamento_pp=round(float(pct_v) - limite_pct, 4),
             dettaglio=f"Valore: €{grp.get(isin, 0):,.0f}",
-            articolo="§2 Circ. 474/D",
+            articolo="Par.2 Circ. 474/D",
         ))
 
     return results
@@ -616,7 +616,7 @@ def check_singolo_aif(df: pd.DataFrame,
     tot = _totale(df)
 
     if not col_ft or not col_isin or col_val is None or tot == 0:
-        return [CheckResult("Circ. 474/D §2", "474_AIF_SING",
+        return [CheckResult("Circ. 474/D Par.2", "474_AIF_SING",
                             f"Singolo OICR AIF ≤ {limite_pct}%",
                             limite_pct, None, 0.0, "NON RILEVABILE", None)]
 
@@ -625,7 +625,7 @@ def check_singolo_aif(df: pd.DataFrame,
     df_aif = df.loc[mask_aif]
 
     if df_aif.empty:
-        return [CheckResult("Circ. 474/D §2", "474_AIF_SING",
+        return [CheckResult("Circ. 474/D Par.2", "474_AIF_SING",
                             f"Singolo OICR AIF ≤ {limite_pct}%",
                             limite_pct, None, 0.0, "OK", None,
                             "Nessun OICR AIF presente")]
@@ -642,7 +642,7 @@ def check_singolo_aif(df: pd.DataFrame,
         det += f" | SFORA: {', '.join(f'{k} ({v:.2f}%)' for k,v in sfora.items())}"
 
     results.append(CheckResult(
-        norma="Circ. 474/D §2",
+        norma="Circ. 474/D Par.2",
         check_id="474_AIF_SING",
         descrizione=f"Singolo OICR non armonizzato (AIF) ≤ {limite_pct}%",
         limite_max_pct=limite_pct,
@@ -651,12 +651,12 @@ def check_singolo_aif(df: pd.DataFrame,
         esito=esito,
         scostamento_pp=sc,
         dettaglio=det,
-        articolo="§2 Circ. 474/D",
+        articolo="Par.2 Circ. 474/D",
     ))
 
     for isin, pct_v in sfora.items():
         results.append(CheckResult(
-            norma="Circ. 474/D §2",
+            norma="Circ. 474/D Par.2",
             check_id="474_AIF_SING_DET",
             descrizione=f"  ↳ AIF: {isin}",
             limite_max_pct=limite_pct,
@@ -665,7 +665,7 @@ def check_singolo_aif(df: pd.DataFrame,
             esito="SFORAMENTO MAX",
             scostamento_pp=round(float(pct_v) - limite_pct, 4),
             dettaglio=f"Valore: €{grp.get(isin, 0):,.0f}",
-            articolo="§2 Circ. 474/D",
+            articolo="Par.2 Circ. 474/D",
         ))
 
     return results
