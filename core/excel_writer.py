@@ -1,5 +1,6 @@
 """
 excel_writer.py
+Genera l'output Excel formattato con tutti i check 474 e regolamento.
 """
 
 import io
@@ -10,17 +11,17 @@ from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 from core.analisi import CheckResult
 
-# -- Palette ------------------------------------------------------------------
-C_BLUE = "00338D"
-C_BLUE_LT = "4472C4"
-C_WHITE = "FFFFFF"
-C_BLACK = "000000"
-C_STRIPE = "F2F2F2"
-C_OK = "C6EFCE"   # verde chiaro
-C_WARN = "FFEB9C"   # giallo
-C_ERR = "FFC7CE"   # rosso chiaro
-C_BORDER = "BFBFBF"
-C_GRAY = "D9D9D9"
+# ── Palette ──────────────────────────────────────────────────────────────────
+C_BLUE     = "00338D"
+C_BLUE_LT  = "4472C4"
+C_WHITE    = "FFFFFF"
+C_BLACK    = "000000"
+C_STRIPE   = "F2F2F2"
+C_OK       = "C6EFCE"   # verde chiaro
+C_WARN     = "FFEB9C"   # giallo
+C_ERR      = "FFC7CE"   # rosso chiaro
+C_BORDER   = "BFBFBF"
+C_GRAY     = "D9D9D9"
 C_HEADER_REG = "2E75B6"  # blu Regolamento
 
 FONT_BODY = "Arial"
@@ -83,16 +84,16 @@ def _auto_width(ws, start_col=2, min_w=8, max_w=60):
 
 
 ESITO_COLOR = {
-    "OK": C_OK,
-    "SFORAMENTO MAX": C_ERR,
+    "OK":                C_OK,
+    "SFORAMENTO MAX":    C_ERR,
     "SFORAMENTO EMITTENTE": C_ERR,
-    "SOTTO MINIMO": C_WARN,
-    "NON RILEVABILE": C_GRAY,
-    "AVVISO": C_WARN,
+    "SOTTO MINIMO":      C_WARN,
+    "NON RILEVABILE":    C_GRAY,
+    "AVVISO":            C_WARN,
 }
 
 HEADERS_474 = [
-    "Norma", "Check", "Descrizione", "Art.",
+    "Norma", "Check", "Descrizione", "Art./Par.",
     "Limite MAX %", "Limite MIN %",
     "Valore effettivo %", "Esito", "Scostamento pp", "Dettaglio"
 ]
@@ -192,10 +193,10 @@ def _write_legend_sheet(ws):
     _kpmg_logo(ws, "Legenda e note metodologiche")
     legenda = [
         ("COLORE", "ESITO", "SIGNIFICATO"),
-        ("Verde", "OK", "Limite rispettato"),
-        ("Rosso", "SFORAMENTO MAX", "Valore effettivo supera il limite massimo"),
-        ("Giallo", "SOTTO MINIMO", "Valore effettivo inferiore al limite minimo"),
-        ("Grigio", "NON RILEVABILE", "Impossibile calcolare - dati mancanti o categoria non mappata"),
+        ("Verde",    "OK",                "Limite rispettato"),
+        ("Rosso",    "SFORAMENTO MAX",    "Valore effettivo supera il limite massimo"),
+        ("Giallo",   "SOTTO MINIMO",      "Valore effettivo inferiore al limite minimo"),
+        ("Grigio",   "NON RILEVABILE",    "Impossibile calcolare — dati mancanti o categoria non mappata"),
     ]
     COLORS = [C_BLUE, C_OK, C_ERR, C_WARN, C_GRAY]
     for i, (col_color, esito, desc) in enumerate(legenda, 5):
@@ -244,7 +245,7 @@ def genera_excel(
 ) -> bytes:
     wb = Workbook()
 
-    # -- COVER ----------------------------------------------------------------
+    # ── COVER ────────────────────────────────────────────────────────────────
     ws_cover = wb.active
     ws_cover.title = "Cover"
     ws_cover.sheet_view.showGridLines = False
@@ -257,7 +258,7 @@ def genera_excel(
     ws_cover["B2"].alignment = Alignment(horizontal="left", vertical="center")
     ws_cover.row_dimensions[2].height = 28
 
-    ws_cover["B3"].value = "Verifica Limiti Fondi Interni UL - Circolare ISVAP 474/D"
+    ws_cover["B3"].value = "Verifica Limiti Fondi Interni UL — Circolare ISVAP 474/D"
     ws_cover["B3"].font = Font(name=FONT_BOLD, size=14, bold=True, color=C_BLUE)
     ws_cover["B3"].alignment = Alignment(horizontal="left", vertical="center")
     ws_cover.row_dimensions[3].height = 22
@@ -272,15 +273,15 @@ def genera_excel(
     tot = df_portafoglio.loc[~excl, col_val].sum() if col_val in df_portafoglio.columns else 0
 
     meta = [
-        ("Fondo / Gestione", info_fondo.get("nome_fondo", nome_fondo)),
-        ("Tipo", info_fondo.get("tipo", "-")),
-        ("Compagnia", info_fondo.get("compagnia", "-")),
-        ("Tipo prestazione", info_fondo.get("tipo_prestazione", "non_previdenziale")),
-        ("Data elaborazione", datetime.date.today().strftime("%d/%m/%Y")),
-        ("N. posizioni", f"{len(df_portafoglio):,}"),
-        ("Totale portafoglio", f"€ {tot:,.2f}"),
-        ("Check 474 eseguiti", str(len(results_474))),
-        ("Check regolamento", str(len(results_reg))),
+        ("Fondo / Gestione",     info_fondo.get("nome_fondo", nome_fondo)),
+        ("Tipo",                  info_fondo.get("tipo", "—")),
+        ("Compagnia",             info_fondo.get("compagnia", "—")),
+        ("Tipo prestazione",      info_fondo.get("tipo_prestazione", "non_previdenziale")),
+        ("Data elaborazione",     datetime.date.today().strftime("%d/%m/%Y")),
+        ("N. posizioni",          f"{len(df_portafoglio):,}"),
+        ("Totale portafoglio",    f"€ {tot:,.2f}"),
+        ("Check 474 eseguiti",    str(len(results_474))),
+        ("Check regolamento",     str(len(results_reg))),
     ]
     for r, (lbl, val) in enumerate(meta, 6):
         lc = ws_cover.cell(r, 2, lbl)
@@ -289,41 +290,41 @@ def genera_excel(
         vc.font = Font(name=FONT_BODY, size=9)
         ws_cover.row_dimensions[r].height = 16
 
-    # -- SHEET 474 -------------------------------------------------------------
+    # ── SHEET 474 ─────────────────────────────────────────────────────────────
     ws_474 = wb.create_sheet("Verifica_474")
     _write_check_sheet(ws_474, results_474,
-                       "Verifica limiti - Circolare ISVAP 474/D",
+                       "Verifica limiti — Circolare ISVAP 474/D",
                        header_bg=C_BLUE)
 
-    # -- SHEET REGOLAMENTO -----------------------------------------------------
+    # ── SHEET REGOLAMENTO ─────────────────────────────────────────────────────
     if results_reg:
         ws_reg = wb.create_sheet("Verifica_Regolamento")
         _write_check_sheet(ws_reg, results_reg,
-                           "Verifica limiti - Regolamento fondo",
+                           "Verifica limiti — Regolamento fondo",
                            header_bg=C_HEADER_REG)
 
-    # -- DETTAGLIO EMITTENTI ---------------------------------------------------
+    # ── DETTAGLIO EMITTENTI ───────────────────────────────────────────────────
     if "denominazione_emittente" in df_portafoglio.columns and col_val in df_portafoglio.columns:
         ws_emit = wb.create_sheet("Dettaglio_Emittenti")
         _write_dettaglio_sheet(ws_emit, df_portafoglio,
                                "Concentrazione per emittente",
                                "denominazione_emittente", col_val, tot)
 
-    # -- DETTAGLIO GRUPPI ------------------------------------------------------
+    # ── DETTAGLIO GRUPPI ──────────────────────────────────────────────────────
     if "gruppo_emittente" in df_portafoglio.columns and col_val in df_portafoglio.columns:
         ws_grp = wb.create_sheet("Dettaglio_Gruppi")
         _write_dettaglio_sheet(ws_grp, df_portafoglio,
                                "Concentrazione per gruppo emittente",
                                "gruppo_emittente", col_val, tot)
 
-    # -- DB GREZZO -------------------------------------------------------------
+    # ── DB GREZZO ─────────────────────────────────────────────────────────────
     ws_db = wb.create_sheet("DB_Grezzo")
     # Mostra solo colonne rilevanti per non appesantire
     cols_show = [c for c in df_portafoglio.columns
                  if c not in ("escluso_calcolo",)]
     _write_db_sheet(ws_db, df_portafoglio[cols_show].head(2000))
 
-    # -- LIMITI REGOLAMENTO RAW ------------------------------------------------
+    # ── LIMITI REGOLAMENTO RAW ────────────────────────────────────────────────
     if limiti_regolamento:
         ws_lim = wb.create_sheet("Limiti_Regolamento_Raw")
         _kpmg_logo(ws_lim, "Limiti estratti dal regolamento (Claude AI)")
@@ -335,7 +336,7 @@ def genera_excel(
                 _data_cell(ws_lim, i, j, val, stripe=(i % 2 == 0))
         _auto_width(ws_lim)
 
-    # -- LEGENDA ---------------------------------------------------------------
+    # ── LEGENDA ───────────────────────────────────────────────────────────────
     ws_leg = wb.create_sheet("Legenda")
     _write_legend_sheet(ws_leg)
 
