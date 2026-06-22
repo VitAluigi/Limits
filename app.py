@@ -13,7 +13,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from core.pdf_parser import extract_text_from_pdf
 from core.claude_extractor import estrai_limiti_regolamento, estrai_info_fondo
 from core.ship_parser import load_ship, get_gestioni, filter_portafoglio
-from core.analisi_474 import esegui_tutti_check, CheckResult
+from core.analisi import esegui_tutti_check, CheckResult
 from core.excel_writer import genera_excel
 
 # ── Page config ──────────────────────────────────────────────────────────────
