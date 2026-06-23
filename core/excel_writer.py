@@ -12,23 +12,22 @@ from openpyxl.utils import get_column_letter
 from core.analisi import CheckResult
 
 # -- Palette ------------------------------------------------------------------
-C_BLUE = "00338D"
-C_BLUE_LT = "4472C4"
-C_WHITE = "FFFFFF"
-C_BLACK = "000000"
-C_STRIPE = "F2F2F2"
-C_OK = "C6EFCE"   # verde chiaro
-C_WARN = "FFEB9C"   # giallo
-C_ERR = "FFC7CE"   # rosso chiaro
-C_BORDER = "BFBFBF"
-C_GRAY = "D9D9D9"
-C_HEADER_REG = "2E75B6"
+C_BLUE     = "00338D"
+C_BLUE_LT  = "4472C4"
+C_WHITE    = "FFFFFF"
+C_BLACK    = "000000"
+C_STRIPE   = "F2F2F2"
+C_OK       = "C6EFCE"
+C_WARN     = "FFEB9C"
+C_ERR      = "FFC7CE"
+C_BORDER   = "BFBFBF"
+C_GRAY     = "D9D9D9"
 
 FONT_BODY = "Arial"
 FONT_LOGO = "KPMG Logo"
 FONT_BOLD = "KPMG Bold"
-SZ = 8
-SZ_HEAD = 14
+SZ        = 8
+SZ_HEAD   = 14
 
 
 def _side():
@@ -84,12 +83,12 @@ def _auto_width(ws, start_col=2, min_w=8, max_w=60):
 
 
 ESITO_COLOR = {
-    "OK": C_OK,
-    "SFORAMENTO MAX": C_ERR,
+    "OK":                   C_OK,
+    "SFORAMENTO MAX":       C_ERR,
     "SFORAMENTO EMITTENTE": C_ERR,
-    "SOTTO MINIMO": C_WARN,
-    "NON RILEVABILE": C_GRAY,
-    "AVVISO": C_WARN,
+    "SOTTO MINIMO":         C_WARN,
+    "NON RILEVABILE":       C_GRAY,
+    "AVVISO":               C_WARN,
 }
 
 HEADERS_474 = [
@@ -113,7 +112,6 @@ def _write_check_sheet(ws, results: list[CheckResult], title: str,
 
     for i, r in enumerate(results, 6):
         bg_row = ESITO_COLOR.get(r.esito, C_WHITE)
-        stripe = (i % 2 == 0)
         vals = [
             r.norma, r.check_id, r.descrizione, r.articolo,
             r.limite_max_pct, r.limite_min_pct,
@@ -126,7 +124,6 @@ def _write_check_sheet(ws, results: list[CheckResult], title: str,
             c.alignment = Alignment(vertical="center")
             c.border = _border()
             c.fill = PatternFill("solid", start_color=bg_row)
-            # Formato numerico per le colonne %
             if j in (6, 7, 8, 10) and isinstance(val, (int, float)):
                 c.number_format = '0.00"%"'
 
@@ -155,7 +152,6 @@ def _write_db_sheet(ws, df: pd.DataFrame):
 
 def _write_dettaglio_sheet(ws, df: pd.DataFrame, title: str,
                             col_gruppo: str, col_val: str, totale: float):
-    """Sheet di dettaglio concentrazione per emittente/gruppo."""
     _kpmg_logo(ws, title)
     if df.empty or col_gruppo not in df.columns or col_val not in df.columns:
         ws["B5"].value = "Nessun dato disponibile."
@@ -167,9 +163,9 @@ def _write_dettaglio_sheet(ws, df: pd.DataFrame, title: str,
              .reset_index()
              .sort_values(col_val, ascending=False)
              .reset_index(drop=True))
-    grp["% portafoglio"] = (grp[col_val] / totale * 100).round(4)
+    grp["% fondo"] = (grp[col_val] / totale * 100).round(4)
 
-    hdrs = [col_gruppo.replace("_", " ").title(), "Valore (EUR)", "% portafoglio"]
+    hdrs = [col_gruppo.replace("_", " ").title(), "Valore (EUR)", "% fondo"]
     for j, h in enumerate(hdrs, 2):
         _header_cell(ws, 5, j, h)
 
@@ -181,7 +177,6 @@ def _write_dettaglio_sheet(ws, df: pd.DataFrame, title: str,
         c.font = Font(name=FONT_BODY, size=SZ, color=C_BLACK)
         c.border = _border()
         c.number_format = '0.00"%"'
-        # Colore se > 10%
         bg = C_ERR if row[2] > 10 else (C_WARN if row[2] > 5 else (C_STRIPE if stripe else C_WHITE))
         c.fill = PatternFill("solid", start_color=bg)
         ws.row_dimensions[i].height = 12
@@ -193,10 +188,10 @@ def _write_legend_sheet(ws):
     _kpmg_logo(ws, "Legenda e note metodologiche")
     legenda = [
         ("COLORE", "ESITO", "SIGNIFICATO"),
-        ("Verde", "OK", "Limite rispettato"),
-        ("Rosso", "SFORAMENTO MAX", "Valore effettivo supera il limite massimo"),
-        ("Giallo", "SOTTO MINIMO", "Valore effettivo inferiore al limite minimo"),
-        ("Grigio", "NON RILEVABILE", "Impossibile calcolare - dati mancanti o categoria non mappata"),
+        ("Verde",   "OK",               "Limite rispettato"),
+        ("Rosso",   "SFORAMENTO MAX",   "Valore effettivo supera il limite massimo"),
+        ("Giallo",  "SOTTO MINIMO",     "Valore effettivo inferiore al limite minimo"),
+        ("Grigio",  "NON RILEVABILE",   "Impossibile calcolare - dati mancanti o categoria non mappata"),
     ]
     COLORS = [C_BLUE, C_OK, C_ERR, C_WARN, C_GRAY]
     for i, (col_color, esito, desc) in enumerate(legenda, 5):
@@ -215,7 +210,7 @@ def _write_legend_sheet(ws):
     note_row += 1
     notes = [
         "- Valore di riferimento: Total Market Value LC (in valuta locale).",
-        "- Denominatore: totale portafoglio esclusi derivati OTC, repo, cash collateral.",
+        "- Denominatore: totale fondo esclusi derivati OTC, repo, cash collateral.",
         "- Rating: fallback chain S&P > Fitch > Moody's > IFRS9. Titoli azionari esenti.",
         "- Quotato: 'Indicator: Listed on Exchange' = X. Blank = non quotato.",
         "- Limite emittente 474: esclude Gov Bond UE / sovrannazionali con rating AAA.",
@@ -273,15 +268,15 @@ def genera_excel(
     tot = df_portafoglio.loc[~excl, col_val].sum() if col_val in df_portafoglio.columns else 0
 
     meta = [
-        ("Fondo / Gestione", info_fondo.get("nome_fondo", nome_fondo)),
-        ("Tipo", info_fondo.get("tipo", "-")),
-        ("Compagnia", info_fondo.get("compagnia", "-")),
-        ("Tipo prestazione", info_fondo.get("tipo_prestazione", "non_previdenziale")),
-        ("Data elaborazione", datetime.date.today().strftime("%d/%m/%Y")),
-        ("N. posizioni", f"{len(df_portafoglio):,}"),
-        ("Totale portafoglio", f"€ {tot:,.2f}"),
-        ("Check 474 eseguiti", str(len(results_474))),
-        ("Check regolamento", str(len(results_reg))),
+        ("Fondo",               info_fondo.get("nome_fondo", nome_fondo)),
+        ("Tipo fondo",          info_fondo.get("tipo", "-")),
+        ("Compagnia",           info_fondo.get("compagnia", "-")),
+        ("Tipo prestazione",    info_fondo.get("tipo_prestazione", "non_previdenziale")),
+        ("Data elaborazione",   datetime.date.today().strftime("%d/%m/%Y")),
+        ("N. posizioni",        f"{len(df_portafoglio):,}"),
+        ("Totale fondo (EUR)",  f"€ {tot:,.2f}"),
+        ("Check 474 eseguiti",  str(len(results_474))),
+        ("Check regolamento",   str(len(results_reg))),
     ]
     for r, (lbl, val) in enumerate(meta, 6):
         lc = ws_cover.cell(r, 2, lbl)
@@ -319,9 +314,7 @@ def genera_excel(
 
     # -- DB GREZZO -------------------------------------------------------------
     ws_db = wb.create_sheet("DB_Grezzo")
-    # Mostra solo colonne rilevanti per non appesantire
-    cols_show = [c for c in df_portafoglio.columns
-                 if c not in ("escluso_calcolo",)]
+    cols_show = [c for c in df_portafoglio.columns if c != "escluso_calcolo"]
     _write_db_sheet(ws_db, df_portafoglio[cols_show].head(2000))
 
     # -- LIMITI REGOLAMENTO RAW ------------------------------------------------
