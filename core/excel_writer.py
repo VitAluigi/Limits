@@ -253,7 +253,7 @@ def genera_excel(
     ws_cover.column_dimensions["B"].width = 32
     ws_cover.column_dimensions["C"].width = 48
 
-    ws_cover["B2"].value = "KPMG"
+    ws_cover["B2"].value = "kpmg"
     ws_cover["B2"].font = Font(name=FONT_LOGO, size=18, color=C_BLUE)
     ws_cover["B2"].alignment = Alignment(horizontal="left", vertical="center")
     ws_cover.row_dimensions[2].height = 28
