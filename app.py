@@ -25,8 +25,8 @@ st.set_page_config(
 
 st.markdown("""
 <style>
-.main-title { font-size:1.8rem; font-weight:700; color:#FFFFFF; margin-bottom:.2rem; background-color: #00338D;}
-.sub-title { font-size:1rem;  color:#5A5A5A;  margin-bottom:1.5rem; background-color: #00338D;}
+.main-title { font-size:1.8rem; font-weight:700; color:#FFFFFF; margin-bottom:.2rem; }
+.sub-title { font-size:1rem;  color:#5A5A5A;  margin-bottom:1.5rem; }
 div[data-testid="stDownloadButton"] button {
     background-color:#00338D; color:white; font-weight:600;
     border-radius:6px; padding:.5rem 1.5rem; width:100%;
