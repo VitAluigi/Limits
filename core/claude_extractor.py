@@ -35,13 +35,13 @@ def _parse_json(text: str):
 # ---------------------------------------------------------------------------
 # Prompt per il regolamento del fondo
 # ---------------------------------------------------------------------------
-PROMPT_REGOLAMENTO = """Sei un esperto di gestioni separate e fondi interni assicurativi italiani.
-Analizza il testo del regolamento del fondo/gestione fornito ed estrai TUTTI i limiti quantitativi
-di investimento previsti (non quelli di legge ma quelli specifici del fondo).
 
+PROMPT_REGOLAMENTO = """Sei un esperto di fondi interni assicurativi italiani (Unit Linked).
+Analizza il testo del regolamento del fondo fornito ed estrai TUTTI i limiti quantitativi
+di investimento previsti (non quelli di legge ma quelli specifici del fondo).
 Per ogni limite estrai:
 - categoria_asset: la categoria di attivo (es. "Investimenti obbligazionari", "Investimenti azionari")
-- limite_max_pct: limite massimo in % del portafoglio (null se non previsto)
+- limite_max_pct: limite massimo in % del fondo (null se non previsto)
 - limite_min_pct: limite minimo in % (null se non previsto)
 - limite_emittente_pct: limite per singolo emittente in % (null se non previsto)
 - limite_controparte_pct: limite per singola controparte (null se non previsto)
@@ -54,19 +54,19 @@ TESTO REGOLAMENTO:
 {testo}
 """
 
-
 # ---------------------------------------------------------------------------
 # Prompt per il nome/info del fondo
 # ---------------------------------------------------------------------------
+
 PROMPT_INFO_FONDO = """Dal testo del regolamento assicurativo fornito, estrai:
-- nome_fondo: il nome completo del fondo interno o gestione separata
+- nome_fondo: il nome completo del fondo interno
 - tipo: "fondo_interno_ul" oppure "gestione_separata" oppure "fondo_pensione"
 - compagnia: nome della compagnia assicurativa (se presente)
 - tipo_prestazione: "non_previdenziale" oppure "previdenziale" (se desumibile)
 
 Rispondi SOLO con un oggetto JSON valido, nessun testo aggiuntivo.
-Esempio: {{"nome_fondo": "Fondo Bilanciato", "tipo": "fondo_interno_ul",
-           "compagnia": "Generali", "tipo_prestazione": "non_previdenziale"}}
+Esempio: {{"nome_fondo": "DM Global Equity", "tipo": "fondo_interno_ul",
+           "compagnia": "Fondo UL 1 S.p.A.", "tipo_prestazione": "non_previdenziale"}}
 
 TESTO:
 {testo}
