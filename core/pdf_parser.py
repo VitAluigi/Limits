@@ -1,4 +1,5 @@
 """pdf_parser.py — estrae testo da PDF via PyMuPDF."""
+
 import fitz
 import io
 
