@@ -1,326 +1,789 @@
 """
-app.py
-Streamlit app - Verifica limiti fondi interni UL / Circolare ISVAP 474/D
+analisi.py
 """
 
-import streamlit as st
+from __future__ import annotations
 import pandas as pd
-import sys
-import os
+from dataclasses import dataclass, field
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+# ---------------------------------------------------------------------------
+# Costanti regolamentari (Sezione 3 Circolare 474/D)
+# ---------------------------------------------------------------------------
 
-from core.pdf_parser import extract_text_from_pdf
-from core.claude_extractor import estrai_limiti_regolamento, estrai_info_fondo
-from core.ship_parser import load_ship, get_fondi, filter_portafoglio
-from core.analisi import esegui_tutti_check, CheckResult
-from core.excel_writer import genera_excel
-
-# -- Page config --------------------------------------------------------------
-st.set_page_config(
-    page_title="Verifica Limiti UL - 474/D",
-    layout="wide",
-    initial_sidebar_state="expanded",
-)
-
-st.markdown("""
-<style>
-.stApp {
-    background-color: #00338D;
+OICR_CLASSES = {
+    "Money market fund", "Real Estate fund", "Fixed Income fund",
+    "Mixed fund", "Hedge fund", "Equity fund",
 }
-.stApp, .stApp p, .stApp label, .stApp h1, .stApp h2, .stApp h3 { color: white; }
-[data-testid="stSidebar"] { background-color: rgb(0, 40, 110); }
-.main-title { font-size:1.8rem; font-weight:700; color:#FFFFFF; margin-bottom:.2rem; }
-.sub-title  { font-size:1rem;  color:#5A5A5A;  margin-bottom:1.5rem; }
-div[data-testid="stDownloadButton"] button {
-    background-color:#00338D; color:white; font-weight:600;
-    border-radius:6px; padding:.5rem 1.5rem; width:100%;
+
+MONETARI_CLASSES = {
+    "Money market fund",
 }
-.esito-ok   { color:#276221; font-weight:700; }
-.esito-err  { color:#9C0006; font-weight:700; }
-.esito-warn { color:#7D6608; font-weight:700; }
-.esito-gray { color:#595959; }
-</style>
-""", unsafe_allow_html=True)
+MONETARI_PRODUCT_TYPES = {
+    "Cash",
+}
+MONETARI_SECURITY_CLASSES = {
+    "Money market fund",
+}
 
-st.markdown('<div class="main-title">Verifica Limiti Fondi Interni UL</div>',
-            unsafe_allow_html=True)
-st.markdown('<div class="sub-title">Circolare ISVAP 474/D - Regolamento fondo</div>',
-            unsafe_allow_html=True)
+AZIONARIO_CLASSES = {
+    "Share", "Equity fund", "Real Estate Shares", "Private Equities",
+    "Hedge fund",   # fondi azionari/multi-asset: esenti dal check rating
+}
 
-# -- Session state -------------------------------------------------------------
-for k in ["df_ship", "limiti_reg", "info_fondo", "results_474", "results_reg",
-          "excel_bytes", "nome_fondo"]:
-    if k not in st.session_state:
-        st.session_state[k] = None
+ESCLUSI_PRODUCT_TYPES = {
+    "Repurchase Agreement", "Interest rate swap (IRS)", "FX Forward",
+    "Credit Default Swap (CDS)", "Securities  Forward",
+    "Other P/L Items", "Repo Collateral Margin Account",
+}
 
-# -- SIDEBAR -------------------------------------------------------------------
-with st.sidebar:
-    st.markdown("### Caricamento file")
-    st.divider()
+RATING_ORDER_SP = [
+    "AAA","AA+","AA","AA-",
+    "A+","A","A-",
+    "BBB+","BBB","BBB-",
+    "BB+","BB","BB-",
+    "B+","B","B-",
+    "CCC+","CCC","CCC-","CC","C","D",
+]
+RATING_MIN_474 = set(RATING_ORDER_SP[:RATING_ORDER_SP.index("BB") + 1])
 
-    # 1. Regolamento fondo
-    st.markdown("**Regolamento del fondo** *(opzionale)*")
-    pdf_reg = st.file_uploader("PDF regolamento", type=["pdf"],
-                               key="up_reg", label_visibility="collapsed")
-    if pdf_reg:
-        if st.button("Estrai limiti regolamento", use_container_width=True):
-            with st.spinner("Analisi PDF con AI…"):
-                try:
-                    testo = extract_text_from_pdf(pdf_reg.read())
-                    st.session_state.limiti_reg = estrai_limiti_regolamento(testo)
-                    st.session_state.info_fondo = estrai_info_fondo(testo)
-                    n = len(st.session_state.limiti_reg)
-                    nome = st.session_state.info_fondo.get("nome_fondo", "-")
-                    st.success(f"Estratti {n} limiti - Fondo: **{nome}**")
-                except Exception as e:
-                    st.error(f"Errore: {e}")
+# ---------------------------------------------------------------------------
+# Helper
+# ---------------------------------------------------------------------------
 
-    st.divider()
+def _col(df: pd.DataFrame, *candidates) -> str | None:
+    for c in candidates:
+        if c in df.columns:
+            return c
+    return None
 
-    # 2. Portafoglio SHIP
-    st.markdown("**Portafoglio del fondo** *(obbligatorio)*")
-    ship_file = st.file_uploader("File Posizioni (.xlsx)", type=["xlsx", "xls"],
-                                  key="up_ship", label_visibility="collapsed")
-    if ship_file:
-        if st.button("Carica portafoglio", use_container_width=True):
-            with st.spinner("Parsing SHIP…"):
-                try:
-                    df = load_ship(ship_file.read())
-                    st.session_state.df_ship = df
-                    fondi = get_fondi(df)
-                    st.success(f"{len(df):,} posizioni - {len(fondi)} fondi")
-                except Exception as e:
-                    st.error(f"Errore: {e}")
+def _totale(df: pd.DataFrame) -> float:
+    col = _col(df, "valore_mercato", "valore_bilancio")
+    if col is None:
+        return 0.0
+    if "escluso_calcolo" in df.columns:
+        return float(df.loc[~df["escluso_calcolo"], col].sum())
+    return float(df[col].sum())
 
-    st.divider()
+def _pct(valore: float, totale: float) -> float:
+    if totale == 0:
+        return 0.0
+    return round(valore / totale * 100, 4)
 
-    # 3. Parametri check 474
-    st.markdown("**Parametri 474/D**")
-    tipo_fondo = st.selectbox("Tipo fondo",
-                               ["non previdenziale", "previdenziale"],
-                               key="tipo_fondo")
-    limite_nq = 10.0 if tipo_fondo == "non previdenziale" else 25.0
-    st.caption(f"Limite non quotati applicato: **{limite_nq}%**")
+def _is_azionario(row: pd.Series) -> bool:
+    sc = str(row.get("security_class", "")).strip()
+    return sc in AZIONARIO_CLASSES
 
+def _esito(valore_pct: float, limite_pct: float | None,
+           minimo_pct: float | None = None) -> tuple[str, float | None]:
+    if limite_pct is not None and valore_pct > limite_pct:
+        return "SFORAMENTO MAX", round(valore_pct - limite_pct, 4)
+    if minimo_pct is not None and valore_pct < minimo_pct:
+        return "SOTTO MINIMO", round(valore_pct - minimo_pct, 4)
+    return "OK", None
 
-# -- MAIN ----------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# Dataclass risultato check
+# ---------------------------------------------------------------------------
 
-# Stato caricamento
-col_s1, col_s2 = st.columns(2)
-with col_s1:
-    ok_ship = st.session_state.df_ship is not None
-    n_pos = len(st.session_state.df_ship) if ok_ship else 0
-    st.markdown(
-        f"{'✅' if ok_ship else '❌'} **Portafoglio** - "
-        f"{'**' + str(n_pos) + ' posizioni**' if ok_ship else '_non caricato_'}"
+@dataclass
+class CheckResult:
+    norma: str
+    check_id: str
+    descrizione: str
+    limite_max_pct: float | None
+    limite_min_pct: float | None
+    valore_effettivo_pct: float
+    esito: str
+    scostamento_pp: float | None
+    dettaglio: str = ""
+    articolo: str = ""
+
+# ---------------------------------------------------------------------------
+# CHECK 1 — Vendite allo scoperto
+# ---------------------------------------------------------------------------
+
+def check_short_selling(df: pd.DataFrame) -> CheckResult:
+    col = _col(df, "Long/Short Position")
+    if col is None:
+        short_pct = 0.0
+        det = "Colonna Long/Short non presente nel SHIP"
+    else:
+        tot = _totale(df)
+        short_val = df.loc[df[col].astype(str).str.lower() == "s", "valore_mercato"].sum()
+        short_pct = _pct(short_val, tot)
+        det = f"Posizioni short: {short_pct:.2f}% del fondo"
+
+    esito, sc = _esito(short_pct, 0.0)
+    return CheckResult(
+        norma="Circ. 474/D Par.2",
+        check_id="474_SHORT",
+        descrizione="Divieto vendite allo scoperto",
+        limite_max_pct=0.0,
+        limite_min_pct=None,
+        valore_effettivo_pct=short_pct,
+        esito=esito if short_pct > 0 else "OK",
+        scostamento_pp=sc if short_pct > 0 else None,
+        dettaglio=det,
+        articolo="Par.2 Circ. 474/D",
     )
-with col_s2:
-    ok_reg = st.session_state.limiti_reg is not None
-    n_lim = len(st.session_state.limiti_reg) if ok_reg else 0
-    st.markdown(
-        f"{'✅' if ok_reg else '❌'} **Regolamento** - "
-        f"{'**' + str(n_lim) + ' limiti**' if ok_reg else '_non caricato (solo check 474)_'}"
+
+# ---------------------------------------------------------------------------
+# CHECK 2 — Divieto commodities
+# ---------------------------------------------------------------------------
+
+def check_commodities(df: pd.DataFrame) -> CheckResult:
+    COMMOD_KEYWORDS = ["commodity", "commodit", "merci", "materie prime"]
+    col = _col(df, "security_class", "valuation_class")
+    if col is None:
+        commod_pct = 0.0
+        det = "Colonna classificazione non presente"
+    else:
+        tot = _totale(df)
+        col_val = _col(df, "valore_mercato", "valore_bilancio")
+        mask = df[col].astype(str).str.lower().apply(
+            lambda v: any(kw in v for kw in COMMOD_KEYWORDS)
+        )
+        commod_pct = _pct(df.loc[mask, col_val].sum(), tot) if col_val else 0.0
+        det = f"Strumenti commodity rilevati: {mask.sum()} posizioni ({commod_pct:.2f}%)"
+
+    esito, sc = ("OK", None) if commod_pct == 0 else ("SFORAMENTO MAX", commod_pct)
+    return CheckResult(
+        norma="Circ. 474/D Par.2",
+        check_id="474_COMMOD",
+        descrizione="Divieto investimento in merci / commodities",
+        limite_max_pct=0.0,
+        limite_min_pct=None,
+        valore_effettivo_pct=commod_pct,
+        esito=esito,
+        scostamento_pp=sc,
+        dettaglio=det,
+        articolo="Par.2 Circ. 474/D",
     )
 
-st.divider()
+# ---------------------------------------------------------------------------
+# CHECK 3 — Limite strumenti monetari ≤ 20%
+# ---------------------------------------------------------------------------
 
-if st.session_state.df_ship is not None:
-    df_all = st.session_state.df_ship.copy()
+def check_monetari(df: pd.DataFrame) -> CheckResult:
+    LIMITE = 20.0
+    col_class = _col(df, "security_class", "valuation_class")
+    col_ptype = _col(df, "product_type")
+    col_val = _col(df, "valore_mercato", "valore_bilancio")
+    tot = _totale(df)
 
-    # -- Filtri gerarchici ----------------------------------------------------
-    st.markdown("### Seleziona fondo")
+    if col_val is None or tot == 0:
+        return CheckResult("Circ. 474/D Par.2", "474_MONET",
+                           "Strumenti monetari ≤ 20%", LIMITE, None,
+                           0.0, "NON RILEVABILE", None,
+                           "Colonna valore non trovata")
 
-    FILTRI = [
-        ("tipo_area",               "Area valutazione"),
-        ("denominazione_impresa",   "Compagnia"),
-        ("denominazione_portafoglio", "Portafoglio"),
-        ("denominazione_fondo",     "Fondo (SAG)"),
+    # La maschera considera solo posizioni nel denominatore (non derivati/repo già esclusi)
+    excl_mask = df.get("escluso_calcolo", pd.Series(False, index=df.index))
+    mask = pd.Series(False, index=df.index)
+    if col_class:
+        mask |= df[col_class].isin(MONETARI_SECURITY_CLASSES)
+    if col_ptype:
+        mask |= df[col_ptype].isin(MONETARI_PRODUCT_TYPES)
+    # Nota: repo e money-market via stringa sono già in ESCLUSI_PRODUCT_TYPES
+    # → non vanno inclusi nel numeratore monetari (sarebbero fuori dal denominatore)
+    mask &= ~excl_mask
+
+    val = df.loc[mask, col_val].sum()
+    pct = _pct(val, tot)
+    esito, sc = _esito(pct, LIMITE)
+    det = (f"Strumenti monetari: €{val:,.0f} ({pct:.2f}% su tot. €{tot:,.0f}). "
+           f"Posizioni: {mask.sum()}")
+    return CheckResult(
+        norma="Circ. 474/D Par.2",
+        check_id="474_MONET",
+        descrizione="Strumenti monetari ≤ 20% del fondo",
+        limite_max_pct=LIMITE,
+        limite_min_pct=None,
+        valore_effettivo_pct=pct,
+        esito=esito,
+        scostamento_pp=sc,
+        dettaglio=det,
+        articolo="Par.2 Circ. 474/D",
+    )
+
+# ---------------------------------------------------------------------------
+# CHECK 4 — Limite titoli non quotati
+# ---------------------------------------------------------------------------
+
+def check_non_quotati(df: pd.DataFrame,
+                      limite_pct: float = 10.0,
+                      tipo_fondo: str = "non previdenziale") -> CheckResult:
+    col_listed = _col(df, "is_listed", "listed")
+    col_val = _col(df, "valore_mercato", "valore_bilancio")
+    tot = _totale(df)
+
+    if col_val is None or tot == 0:
+        return CheckResult("Circ. 474/D Par.2", "474_NQUOT",
+                           f"Non quotati ≤ {limite_pct}%", limite_pct, None,
+                           0.0, "NON RILEVABILE", None)
+
+    if col_listed == "is_listed":
+        mask_nq = ~df["is_listed"]
+    elif col_listed == "listed":
+        mask_nq = df["listed"].astype(str).str.strip().str.upper() != "X"
+    else:
+        mask_nq = pd.Series(False, index=df.index)
+
+    if "escluso_calcolo" in df.columns:
+        mask_nq &= ~df["escluso_calcolo"]
+
+    val = df.loc[mask_nq, col_val].sum()
+    pct = _pct(val, tot)
+    esito, sc = _esito(pct, limite_pct)
+
+    col_class = _col(df, "security_class")
+    if col_class:
+        breakdown = df.loc[mask_nq].groupby(col_class)[col_val].sum().sort_values(ascending=False)
+        det_parts = [f"{k}: €{v:,.0f}" for k, v in breakdown.head(5).items()]
+        det = f"Non quotati: {pct:.2f}%. Top categorie: {'; '.join(det_parts)}"
+    else:
+        det = f"Non quotati: €{val:,.0f} ({pct:.2f}%)"
+
+    return CheckResult(
+        norma="Circ. 474/D Par.2",
+        check_id="474_NQUOT",
+        descrizione=f"Titoli non quotati ≤ {limite_pct}% ({tipo_fondo})",
+        limite_max_pct=limite_pct,
+        limite_min_pct=None,
+        valore_effettivo_pct=pct,
+        esito=esito,
+        scostamento_pp=sc,
+        dettaglio=det,
+        articolo="Par.2 Circ. 474/D",
+    )
+
+# ---------------------------------------------------------------------------
+# CHECK 5 — Rating minimo BB
+# ---------------------------------------------------------------------------
+
+def check_rating_minimo(df: pd.DataFrame, limite_pct: float = 5.0) -> CheckResult:
+    col_val = _col(df, "valore_mercato", "valore_bilancio")
+    tot = _totale(df)
+
+    if col_val is None or tot == 0 or "rating_norm" not in df.columns:
+        return CheckResult("Circ. 474/D Par.1", "474_RATING",
+                           f"Rating < BB o NR ≤ {limite_pct}%", limite_pct, None,
+                           0.0, "NON RILEVABILE", None, "Colonna rating non disponibile")
+
+    col_class = _col(df, "security_class")
+    excl = df.get("escluso_calcolo", pd.Series(False, index=df.index))
+
+    def _is_below(row):
+        if excl.at[row.name]:
+            return False
+        sc = str(row.get("security_class", "")).strip() if col_class else ""
+        if sc in AZIONARIO_CLASSES:
+            return False
+        r = str(row.get("rating_norm", "NR")).strip()
+        return r == "NR" or r not in RATING_MIN_474
+
+    mask_below = df.apply(_is_below, axis=1)
+    val = df.loc[mask_below, col_val].sum()
+    pct = _pct(val, tot)
+    esito, sc = _esito(pct, limite_pct)
+
+    if "rating_norm" in df.columns:
+        rating_dist = (df.loc[mask_below]
+                       .groupby("rating_norm")[col_val].sum()
+                       .sort_values(ascending=False))
+        det_parts = [f"{k}: €{v:,.0f}" for k, v in rating_dist.head(5).items()]
+        det = f"< BB o NR: {pct:.2f}%. Distribuzione: {'; '.join(det_parts)}"
+    else:
+        det = f"< BB o NR: €{val:,.0f} ({pct:.2f}%)"
+
+    return CheckResult(
+        norma="Circ. 474/D Par.1",
+        check_id="474_RATING",
+        descrizione=f"Titoli rating < BB o NR ≤ {limite_pct}% del fondo",
+        limite_max_pct=limite_pct,
+        limite_min_pct=None,
+        valore_effettivo_pct=pct,
+        esito=esito,
+        scostamento_pp=sc,
+        dettaglio=det,
+        articolo="Par.1 Circ. 474/D",
+    )
+
+# ---------------------------------------------------------------------------
+# CHECK 6 — Concentrazione emittente ≤ 10%
+# ---------------------------------------------------------------------------
+
+def check_concentrazione_emittente(df: pd.DataFrame,
+                                   limite_pct: float = 10.0) -> list[CheckResult]:
+    col_emit = _col(df, "denominazione_emittente")
+    col_val = _col(df, "valore_mercato", "valore_bilancio")
+    tot = _totale(df)
+
+    if not col_emit or col_val is None or tot == 0:
+        return [CheckResult("Circ. 474/D Par.2", "474_EMIT",
+                            f"Concentrazione per emittente ≤ {limite_pct}%",
+                            limite_pct, None, 0.0, "NON RILEVABILE", None,
+                            "Colonna emittente o valore non trovata")]
+
+    excl = df.get("escluso_calcolo", pd.Series(False, index=df.index))
+    df_work = df.loc[~excl].copy()
+
+    STATI_UE_KEY = ["govt bond", "government bond", "titoli di stato"]
+    def _esentato(row):
+        sc = str(row.get("security_class", "")).lower()
+        is_gov = any(k in sc for k in STATI_UE_KEY) or str(row.get("issuer_type","")).lower() == "government"
+        rating = str(row.get("rating_norm","")).strip()
+        return is_gov and rating == "AAA"
+
+    df_work["_esentato"] = df_work.apply(_esentato, axis=1)
+    df_calc = df_work.loc[~df_work["_esentato"]]
+
+    grp = df_calc.groupby(col_emit)[col_val].sum().sort_values(ascending=False)
+    grp_pct = (grp / tot * 100).round(4)
+
+    max_pct = float(grp_pct.iloc[0]) if len(grp_pct) > 0 else 0.0
+    emit_sfora = grp_pct[grp_pct > limite_pct]
+
+    results = []
+    esito, sc = _esito(max_pct, limite_pct)
+    top5 = "; ".join(f"{k}: {v:.2f}%" for k, v in grp_pct.head(5).items())
+    det = f"Emittente max: {grp_pct.index[0] if len(grp_pct) else 'N/A'} ({max_pct:.2f}%). Top 5: {top5}"
+    if len(emit_sfora):
+        det += f" | SFORA: {', '.join(f'{k} ({v:.2f}%)' for k, v in emit_sfora.items())}"
+
+    results.append(CheckResult(
+        norma="Circ. 474/D Par.2",
+        check_id="474_EMIT",
+        descrizione=f"Concentrazione emittente ≤ {limite_pct}% (ex Gov AAA)",
+        limite_max_pct=limite_pct,
+        limite_min_pct=None,
+        valore_effettivo_pct=max_pct,
+        esito=esito,
+        scostamento_pp=sc,
+        dettaglio=det,
+        articolo="Par.2 Circ. 474/D",
+    ))
+
+    for emit, pct_v in emit_sfora.items():
+        results.append(CheckResult(
+            norma="Circ. 474/D Par.2",
+            check_id="474_EMIT_DET",
+            descrizione=f"  ↳ Emittente: {emit}",
+            limite_max_pct=limite_pct,
+            limite_min_pct=None,
+            valore_effettivo_pct=float(pct_v),
+            esito="SFORAMENTO MAX",
+            scostamento_pp=round(float(pct_v) - limite_pct, 4),
+            dettaglio=f"Valore: €{grp.get(emit, 0):,.0f}",
+            articolo="Par.2 Circ. 474/D",
+        ))
+
+    return results
+
+# ---------------------------------------------------------------------------
+# CHECK 7 — Concentrazione gruppo ≤ 30%
+# ---------------------------------------------------------------------------
+
+def check_concentrazione_gruppo(df: pd.DataFrame,
+                                 limite_pct: float = 30.0) -> list[CheckResult]:
+    col_gruppo = _col(df, "gruppo_emittente")
+    col_val = _col(df, "valore_mercato", "valore_bilancio")
+    tot = _totale(df)
+
+    if not col_gruppo or col_val is None or tot == 0:
+        return [CheckResult("Circ. 474/D Par.2", "474_GRUPPO",
+                            f"Concentrazione gruppo ≤ {limite_pct}%",
+                            limite_pct, None, 0.0, "NON RILEVABILE", None,
+                            "Colonna 'Issuer Ultimate Parent' non trovata")]
+
+    excl = df.get("escluso_calcolo", pd.Series(False, index=df.index))
+    grp = (df.loc[~excl]
+             .groupby(col_gruppo)[col_val].sum()
+             .sort_values(ascending=False))
+    grp_pct = (grp / tot * 100).round(4)
+
+    max_pct = float(grp_pct.iloc[0]) if len(grp_pct) > 0 else 0.0
+    gruppi_sfora = grp_pct[grp_pct > limite_pct]
+
+    results = []
+    esito, sc = _esito(max_pct, limite_pct)
+    top5 = "; ".join(f"{k}: {v:.2f}%" for k, v in grp_pct.head(5).items())
+    det = f"Gruppo max: {grp_pct.index[0] if len(grp_pct) else 'N/A'} ({max_pct:.2f}%). Top 5: {top5}"
+    if len(gruppi_sfora):
+        det += f" | SFORA: {', '.join(f'{k} ({v:.2f}%)' for k,v in gruppi_sfora.items())}"
+
+    results.append(CheckResult(
+        norma="Circ. 474/D Par.2",
+        check_id="474_GRUPPO",
+        descrizione=f"Concentrazione gruppo emittente ≤ {limite_pct}%",
+        limite_max_pct=limite_pct,
+        limite_min_pct=None,
+        valore_effettivo_pct=max_pct,
+        esito=esito,
+        scostamento_pp=sc,
+        dettaglio=det,
+        articolo="Par.2 Circ. 474/D (circ. 551 integraz.)",
+    ))
+
+    for gruppo, pct_v in gruppi_sfora.items():
+        results.append(CheckResult(
+            norma="Circ. 474/D Par.2",
+            check_id="474_GRUPPO_DET",
+            descrizione=f"  ↳ Gruppo: {gruppo}",
+            limite_max_pct=limite_pct,
+            limite_min_pct=None,
+            valore_effettivo_pct=float(pct_v),
+            esito="SFORAMENTO MAX",
+            scostamento_pp=round(float(pct_v) - limite_pct, 4),
+            dettaglio=f"Valore: €{grp.get(gruppo, 0):,.0f}",
+            articolo="Par.2 Circ. 474/D",
+        ))
+
+    return results
+
+# ---------------------------------------------------------------------------
+# CHECK 8 — OICR non armonizzati (AIF) ≤ 30%
+# ---------------------------------------------------------------------------
+
+def check_oicr_non_armonizzati(df: pd.DataFrame,
+                                limite_pct: float = 30.0) -> CheckResult:
+    col_ft = _col(df, "fund_type")
+    col_val = _col(df, "valore_mercato", "valore_bilancio")
+    tot = _totale(df)
+
+    if not col_ft or col_val is None or tot == 0:
+        return CheckResult("Circ. 474/D Par.2", "474_AIF",
+                           f"OICR non armonizzati (AIF) ≤ {limite_pct}%",
+                           limite_pct, None, 0.0, "NON RILEVABILE", None,
+                           "Colonna Fund Type non disponibile")
+
+    excl = df.get("escluso_calcolo", pd.Series(False, index=df.index))
+    col_class = _col(df, "security_class")
+    # Applica il limite solo ai veri OICR non armonizzati:
+    # bond/azioni con fund_type=AIF per errore nel dato SHIP non sono AIF
+    mask = (~excl) & (df[col_ft].astype(str).str.upper() == "AIF")
+    if col_class:
+        mask &= df[col_class].isin(OICR_CLASSES)
+    val = df.loc[mask, col_val].sum()
+    pct = _pct(val, tot)
+    esito, sc = _esito(pct, limite_pct)
+
+    if col_class:
+        bd = df.loc[mask].groupby(col_class)[col_val].sum().sort_values(ascending=False)
+        det_parts = [f"{k}: €{v:,.0f}" for k, v in bd.items()]
+        det = f"AIF totale (solo OICR): {pct:.2f}%. Categorie: {'; '.join(det_parts)}"
+    else:
+        det = f"AIF totale: €{val:,.0f} ({pct:.2f}%)"
+
+    return CheckResult(
+        norma="Circ. 474/D Par.2",
+        check_id="474_AIF",
+        descrizione=f"OICR non armonizzati (AIF) ≤ {limite_pct}% del fondo",
+        limite_max_pct=limite_pct,
+        limite_min_pct=None,
+        valore_effettivo_pct=pct,
+        esito=esito,
+        scostamento_pp=sc,
+        dettaglio=det,
+        articolo="Par.2 Circ. 474/D",
+    )
+
+# ---------------------------------------------------------------------------
+# CHECK 9 — Singolo OICR UCITS ≤ 25%
+# ---------------------------------------------------------------------------
+
+def check_singolo_ucits(df: pd.DataFrame,
+                         limite_pct: float = 25.0) -> list[CheckResult]:
+    col_ft = _col(df, "fund_type")
+    col_isin = _col(df, "isin", "denominazione_strumento")
+    col_val = _col(df, "valore_mercato", "valore_bilancio")
+    tot = _totale(df)
+
+    if not col_ft or not col_isin or col_val is None or tot == 0:
+        return [CheckResult("Circ. 474/D Par.2", "474_UCITS",
+                            f"Singolo OICR UCITS ≤ {limite_pct}%",
+                            limite_pct, None, 0.0, "NON RILEVABILE", None,
+                            "Colonne Fund Type / ISIN non disponibili")]
+
+    excl = df.get("escluso_calcolo", pd.Series(False, index=df.index))
+    col_class = _col(df, "security_class")
+    # Applica il limite solo ai veri OICR (fund_type UCITS su security_class fondi)
+    # Strumenti come bond/azioni con fund_type=UCITS per errore nel dato non sono OICR
+    mask_ucits = (~excl) & (df[col_ft].astype(str).str.upper() == "UCITS")
+    if col_class:
+        mask_ucits &= df[col_class].isin(OICR_CLASSES)
+    df_ucits = df.loc[mask_ucits]
+
+    if df_ucits.empty:
+        return [CheckResult("Circ. 474/D Par.2", "474_UCITS",
+                            f"Singolo OICR UCITS ≤ {limite_pct}%",
+                            limite_pct, None, 0.0, "OK", None,
+                            "Nessun OICR UCITS presente")]
+
+    grp = df_ucits.groupby(col_isin)[col_val].sum().sort_values(ascending=False)
+    grp_pct = (grp / tot * 100).round(4)
+    max_pct = float(grp_pct.iloc[0])
+    sfora = grp_pct[grp_pct > limite_pct]
+
+    results = []
+    esito, sc = _esito(max_pct, limite_pct)
+    det = f"Max singolo UCITS: {grp_pct.index[0]} ({max_pct:.2f}%)"
+    if len(sfora):
+        det += f" | SFORA: {', '.join(f'{k} ({v:.2f}%)' for k,v in sfora.items())}"
+
+    results.append(CheckResult(
+        norma="Circ. 474/D Par.2",
+        check_id="474_UCITS",
+        descrizione=f"Singolo OICR UCITS ≤ {limite_pct}%",
+        limite_max_pct=limite_pct,
+        limite_min_pct=None,
+        valore_effettivo_pct=max_pct,
+        esito=esito,
+        scostamento_pp=sc,
+        dettaglio=det,
+        articolo="Par.2 Circ. 474/D",
+    ))
+
+    for isin, pct_v in sfora.items():
+        results.append(CheckResult(
+            norma="Circ. 474/D Par.2",
+            check_id="474_UCITS_DET",
+            descrizione=f"  ↳ UCITS: {isin}",
+            limite_max_pct=limite_pct,
+            limite_min_pct=None,
+            valore_effettivo_pct=float(pct_v),
+            esito="SFORAMENTO MAX",
+            scostamento_pp=round(float(pct_v) - limite_pct, 4),
+            dettaglio=f"Valore: €{grp.get(isin, 0):,.0f}",
+            articolo="Par.2 Circ. 474/D",
+        ))
+
+    return results
+
+# ---------------------------------------------------------------------------
+# CHECK 10 — Singolo OICR AIF ≤ 10%
+# ---------------------------------------------------------------------------
+
+def check_singolo_aif(df: pd.DataFrame,
+                       limite_pct: float = 10.0) -> list[CheckResult]:
+    col_ft = _col(df, "fund_type")
+    col_isin = _col(df, "isin", "denominazione_strumento")
+    col_val = _col(df, "valore_mercato", "valore_bilancio")
+    tot = _totale(df)
+
+    if not col_ft or not col_isin or col_val is None or tot == 0:
+        return [CheckResult("Circ. 474/D Par.2", "474_AIF_SING",
+                            f"Singolo OICR AIF ≤ {limite_pct}%",
+                            limite_pct, None, 0.0, "NON RILEVABILE", None)]
+
+    excl = df.get("escluso_calcolo", pd.Series(False, index=df.index))
+    col_class = _col(df, "security_class")
+    mask_aif = (~excl) & (df[col_ft].astype(str).str.upper() == "AIF")
+    if col_class:
+        mask_aif &= df[col_class].isin(OICR_CLASSES)
+    df_aif = df.loc[mask_aif]
+
+    if df_aif.empty:
+        return [CheckResult("Circ. 474/D Par.2", "474_AIF_SING",
+                            f"Singolo OICR AIF ≤ {limite_pct}%",
+                            limite_pct, None, 0.0, "OK", None,
+                            "Nessun OICR AIF presente")]
+
+    grp = df_aif.groupby(col_isin)[col_val].sum().sort_values(ascending=False)
+    grp_pct = (grp / tot * 100).round(4)
+    max_pct = float(grp_pct.iloc[0])
+    sfora = grp_pct[grp_pct > limite_pct]
+
+    results = []
+    esito, sc = _esito(max_pct, limite_pct)
+    det = f"Max singolo AIF: {grp_pct.index[0]} ({max_pct:.2f}%)"
+    if len(sfora):
+        det += f" | SFORA: {', '.join(f'{k} ({v:.2f}%)' for k,v in sfora.items())}"
+
+    results.append(CheckResult(
+        norma="Circ. 474/D Par.2",
+        check_id="474_AIF_SING",
+        descrizione=f"Singolo OICR non armonizzato (AIF) ≤ {limite_pct}%",
+        limite_max_pct=limite_pct,
+        limite_min_pct=None,
+        valore_effettivo_pct=max_pct,
+        esito=esito,
+        scostamento_pp=sc,
+        dettaglio=det,
+        articolo="Par.2 Circ. 474/D",
+    ))
+
+    for isin, pct_v in sfora.items():
+        results.append(CheckResult(
+            norma="Circ. 474/D Par.2",
+            check_id="474_AIF_SING_DET",
+            descrizione=f"  ↳ AIF: {isin}",
+            limite_max_pct=limite_pct,
+            limite_min_pct=None,
+            valore_effettivo_pct=float(pct_v),
+            esito="SFORAMENTO MAX",
+            scostamento_pp=round(float(pct_v) - limite_pct, 4),
+            dettaglio=f"Valore: €{grp.get(isin, 0):,.0f}",
+            articolo="Par.2 Circ. 474/D",
+        ))
+
+    return results
+
+# ---------------------------------------------------------------------------
+# CHECK REGOLAMENTO — limiti estratti dal regolamento del fondo
+# ---------------------------------------------------------------------------
+
+def check_regolamento(df: pd.DataFrame,
+                       limiti: list[dict]) -> list[CheckResult]:
+    col_val = _col(df, "valore_mercato", "valore_bilancio")
+    col_class = _col(df, "security_class", "valuation_class")
+    tot = _totale(df)
+    results = []
+
+    if col_val is None or tot == 0:
+        return results
+
+    # ── MACRO_MAP ────────────────────────────────────────────────────────────
+    # Chiavi ordinate dalla più specifica alla più generica: il matching usa
+    # substring (chiave IN cat_lower), quindi le chiavi più lunghe devono
+    # stare prima per evitare che "azionari" catturi "azionario tecnologico".
+    _OBB = {
+        "Govt bonds <1 year", "Govt bonds >1 year <10 years", "Govt bonds >10 years",
+        "Ordinary bond", "Subordinated bond", "Infra Bonds", "Index Linked Bonds",
+        "Mortgage Backed Security", "Asset Backed Security", "Perpetual Notes",
+        "Credit linked note", "Loan",   # Loan = strumento di debito
+    }
+    _AZ = {
+        "Share", "Real Estate Shares", "Private Equities", "Equity fund",
+    }
+    MACRO_MAP: list[tuple[str, set[str]]] = [
+        # — più specifiche prima (ordine per lunghezza chiave decrescente) —
+        ("azionario tecnolog", _AZ),          # "Azionario Tecnologico"
+        ("altri strumenti",    {"Fixed Income fund","Private equity fund","Mixed fund",
+                                "Hedge fund","Real Estate fund","Equity fund","Money market fund"}),
+        ("obbligazionari",     _OBB),
+        ("infrastruttu",       {"Infra Bonds"}),          # "Infrastrutture"
+        ("immobiliar",         {"Real Estate fund","Real Estate Shares"}),
+        ("flessibil",          {"Mixed fund","Fixed Income fund"}),  # "Flessibile"
+        ("bilancia",           {"Mixed fund"}),            # "Bilanciato"
+        ("monetari",           {"Money market fund"}),     # "Monetario" / "Monetari"
+        ("prestiti",           {"Loan"}),                  # "Prestiti"
+        ("liquid",             {"Money market fund"}),     # "Liquidità" / "Disponibilità liquide"
+        ("azionari",           _AZ),
+        ("fondi",              {"Fixed Income fund","Mixed fund","Hedge fund",
+                                "Equity fund","Real Estate fund","Money market fund"}),
     ]
 
-    col_f1, col_f2, col_f3, col_f4 = st.columns(4)
-    filter_cols = [col_f1, col_f2, col_f3, col_f4]
-    df_work = df_all.copy()
-    selezioni = {}
+    # Categorie regolamento che includono anche la liquidità Cash
+    # (product_type = "Cash", security_class = "Not assigned")
+    _INCLUDE_CASH_PT = {"monetari", "liquid"}
 
-    for i, (col_name, label) in enumerate(FILTRI):
-        if col_name not in df_work.columns:
-            continue
-        valori = sorted(df_work[col_name].dropna().astype(str).unique().tolist())
-        if not valori:
-            continue
-        sel = filter_cols[i].selectbox(label, ["(tutti)"] + valori,
-                                        key=f"f_{col_name}")
-        selezioni[col_name] = sel
-        if sel != "(tutti)":
-            df_work = df_work[df_work[col_name].astype(str) == sel]
+    col_ptype = _col(df, "product_type")
 
-    df_sel = df_work.reset_index(drop=True)
+    def _match_classes(cat_str: str) -> tuple[set[str], bool]:
+        """Restituisce (security_classes, include_cash_product_type)."""
+        cat_lower = cat_str.lower().strip()
+        for macro, sc_set in MACRO_MAP:
+            if macro in cat_lower:
+                include_cash = macro in _INCLUDE_CASH_PT
+                return sc_set, include_cash
+        return {cat_str}, False   # fallback letterale, no Cash
 
-    # KPI
-    col_val_kpi = ("valore_mercato" if "valore_mercato" in df_sel.columns
-                   else "valore_bilancio" if "valore_bilancio" in df_sel.columns else None)
-    excl_kpi = df_sel.get("escluso_calcolo", pd.Series(False, index=df_sel.index))
-    tot_kpi = df_sel.loc[~excl_kpi, col_val_kpi].sum() if col_val_kpi else 0
+    for lim in limiti:
+        cat = lim.get("categoria_asset", "")
+        lim_max = lim.get("limite_max_pct")
+        lim_min = lim.get("limite_min_pct")
+        lim_emit = lim.get("limite_emittente_pct")
+        sezione = lim.get("sezione", lim.get("articolo", ""))
 
-    kc1, kc2, kc3, kc4 = st.columns(4)
-    kc1.metric("Totale fondo (EUR)", f"€ {tot_kpi:,.0f}")
-    kc2.metric("Posizioni", f"{len(df_sel):,}")
-    kc3.metric("Emittenti",
-               str(df_sel["denominazione_emittente"].nunique())
-               if "denominazione_emittente" in df_sel.columns else "-")
-    kc4.metric("Gruppi emittente",
-               str(df_sel["gruppo_emittente"].nunique())
-               if "gruppo_emittente" in df_sel.columns else "-")
+        sc_set, include_cash = _match_classes(cat)
 
-    st.divider()
+        # Maschera su security_class
+        if col_class and sc_set:
+            mask = df[col_class].isin(sc_set)
+        else:
+            mask = pd.Series(False, index=df.index)
 
-    # Nome fondo per output
-    nome_fondo = (selezioni.get("denominazione_fondo", "")
-                  or selezioni.get("denominazione_portafoglio", "")
-                  or "Fondo")
-    if nome_fondo in ("(tutti)", ""):
-        nome_fondo = "Fondo"
+        # Per "Monetario" / "Disponibilità liquide" aggiungi anche Cash (product_type)
+        if include_cash and col_ptype:
+            mask |= df[col_ptype].isin({"Cash"})
 
-    # -- Esegui check --------------------------------------------------------
-    st.markdown("### Esegui verifica")
+        # Escludi posizioni fuori denominatore
+        excl_calc = df.get("escluso_calcolo", pd.Series(False, index=df.index))
+        mask &= ~excl_calc
 
-    if len(df_sel) == 0:
-        st.warning("Nessuna posizione nel perimetro selezionato.")
-    else:
-        if st.button("ESEGUI VERIFICA", type="primary", use_container_width=False):
-            with st.spinner("Calcolo check 474 e regolamento…"):
-                try:
-                    limiti_r = st.session_state.limiti_reg or []
-                    info_f   = st.session_state.info_fondo or {}
+        val = df.loc[mask, col_val].sum()
+        pct = _pct(val, tot)
+        any_match = mask.any()
 
-                    results_474 = esegui_tutti_check(
-                        df_sel,
-                        limiti_regolamento=None,
-                        limite_non_quotati=limite_nq,
-                        tipo_fondo=tipo_fondo,
-                    )
+        if not any_match and pct == 0.0:
+            esito = "NON RILEVABILE"
+            sc = None
+        else:
+            esito, sc = _esito(pct, lim_max, lim_min)
 
-                    from core.analisi import check_regolamento
-                    results_reg = check_regolamento(df_sel, limiti_r) if limiti_r else []
+        det = f"Categoria '{cat}': €{val:,.0f} ({pct:.2f}% del tot. €{tot:,.0f})"
 
-                    st.session_state.results_474 = results_474
-                    st.session_state.results_reg = results_reg
-                    st.session_state.nome_fondo  = nome_fondo
+        results.append(CheckResult(
+            norma="Regolamento fondo",
+            check_id=f"REG_{cat[:20].upper().replace(' ','_')}",
+            descrizione=f"{cat}",
+            limite_max_pct=lim_max,
+            limite_min_pct=lim_min,
+            valore_effettivo_pct=pct,
+            esito=esito,
+            scostamento_pp=sc,
+            dettaglio=det,
+            articolo=sezione,
+        ))
 
-                    excel_b = genera_excel(
-                        df_portafoglio=df_sel,
-                        results_474=results_474,
-                        results_reg=results_reg,
-                        limiti_regolamento=limiti_r,
-                        info_fondo=info_f,
-                        nome_fondo=nome_fondo,
-                    )
-                    st.session_state.excel_bytes = excel_b
-                    st.success("Verifica completata!")
-                except Exception as e:
-                    st.error(f"Errore: {e}")
-                    st.exception(e)
+        if lim_emit is not None and any_match:
+            col_emit = _col(df, "denominazione_emittente")
+            if col_emit:
+                grp = df.loc[mask].groupby(col_emit)[col_val].sum()
+                grp_pct = (grp / tot * 100).sort_values(ascending=False)
+                max_emit_pct = float(grp_pct.iloc[0]) if len(grp_pct) else 0.0
+                esito_e, sc_e = _esito(max_emit_pct, lim_emit)
+                results.append(CheckResult(
+                    norma="Regolamento fondo",
+                    check_id=f"REG_EMIT_{cat[:15].upper().replace(' ','_')}",
+                    descrizione=f"  ↳ Max emittente in '{cat}'",
+                    limite_max_pct=lim_emit,
+                    limite_min_pct=None,
+                    valore_effettivo_pct=max_emit_pct,
+                    esito=esito_e,
+                    scostamento_pp=sc_e,
+                    dettaglio=(f"Max emittente: {grp_pct.index[0] if len(grp_pct) else 'N/A'} "
+                               f"({max_emit_pct:.2f}%)"),
+                    articolo=sezione,
+                ))
 
-    # -- Risultati ------------------------------------------------------------
-    if st.session_state.results_474:
-        results_474: list[CheckResult] = st.session_state.results_474
-        results_reg: list[CheckResult] = st.session_state.results_reg or []
+    return results
 
-        def _esiti_count(rs):
-            ok   = sum(1 for r in rs if r.esito == "OK")
-            err  = sum(1 for r in rs if "SFORA" in r.esito)
-            warn = sum(1 for r in rs if "MINIMO" in r.esito or "AVVISO" in r.esito)
-            nr   = sum(1 for r in rs if r.esito == "NON RILEVABILE")
-            return ok, err, warn, nr
+# ---------------------------------------------------------------------------
+# Runner principale
+# ---------------------------------------------------------------------------
 
-        ok4, e4, w4, nr4 = _esiti_count(results_474)
-        okr, er, wr, nrr = _esiti_count(results_reg)
+def esegui_tutti_check(
+    df: pd.DataFrame,
+    limiti_regolamento: list[dict] | None = None,
+    limite_non_quotati: float = 10.0,
+    tipo_fondo: str = "non previdenziale",
+) -> list[CheckResult]:
+    results: list[CheckResult] = []
 
-        st.markdown("#### Sintesi check Circolare 474/D")
-        sc1, sc2, sc3, sc4 = st.columns(4)
-        sc1.metric("OK", ok4)
-        sc2.metric("Sforamenti", e4)
-        sc3.metric("Sotto minimo", w4)
-        sc4.metric("Non rilevabile", nr4)
+    results.append(check_short_selling(df))
+    results.append(check_commodities(df))
+    results.append(check_monetari(df))
+    results.append(check_non_quotati(df, limite_non_quotati, tipo_fondo))
+    results.append(check_rating_minimo(df))
+    results.extend(check_concentrazione_emittente(df))
+    results.extend(check_concentrazione_gruppo(df))
+    results.append(check_oicr_non_armonizzati(df))
+    results.extend(check_singolo_ucits(df))
+    results.extend(check_singolo_aif(df))
 
-        def _color_esito(val):
-            if "SFORA" in str(val):
-                return "background-color:#FFC7CE;color:#9C0006;font-weight:bold"
-            if "MINIMO" in str(val):
-                return "background-color:#FFEB9C;color:#7D6608;font-weight:bold"
-            if val == "OK":
-                return "background-color:#C6EFCE;color:#276221;font-weight:bold"
-            return "background-color:#D9D9D9;color:#595959"
+    if limiti_regolamento:
+        results.extend(check_regolamento(df, limiti_regolamento))
 
-        rows_474 = []
-        for r in results_474:
-            rows_474.append({
-                "Check":        r.check_id,
-                "Descrizione":  r.descrizione,
-                "Limite MAX %": r.limite_max_pct,
-                "Valore %":     r.valore_effettivo_pct,
-                "Esito":        r.esito,
-                "Scost. pp":    r.scostamento_pp,
-                "Dettaglio":    r.dettaglio[:80] + "…" if len(r.dettaglio) > 80 else r.dettaglio,
-            })
-
-        df_show = pd.DataFrame(rows_474)
-        st.dataframe(
-            df_show.style.map(_color_esito, subset=["Esito"]),
-            use_container_width=True, height=420,
-        )
-
-        if results_reg:
-            st.markdown("#### Sintesi check Regolamento fondo")
-            rc1, rc2, rc3, rc4 = st.columns(4)
-            rc1.metric("OK", okr)
-            rc2.metric("Sforamenti", er)
-            rc3.metric("Sotto minimo", wr)
-            rc4.metric("Non rilevabile", nrr)
-
-            rows_reg = []
-            for r in results_reg:
-                rows_reg.append({
-                    "Descrizione":  r.descrizione,
-                    "Art./Par.":    r.articolo,
-                    "Limite MAX %": r.limite_max_pct,
-                    "Limite MIN %": r.limite_min_pct,
-                    "Valore %":     r.valore_effettivo_pct,
-                    "Esito":        r.esito,
-                })
-            df_reg_show = pd.DataFrame(rows_reg)
-            st.dataframe(
-                df_reg_show.style.map(_color_esito, subset=["Esito"]),
-                use_container_width=True, height=300,
-            )
-
-    # -- Download Excel -------------------------------------------------------
-    if st.session_state.excel_bytes:
-        st.divider()
-        fname = f"Verifica_474_{st.session_state.nome_fondo.replace(' ','_')}.xlsx"
-        st.download_button(
-            label="⬇ Scarica Excel verifica",
-            data=st.session_state.excel_bytes,
-            file_name=fname,
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            use_container_width=False,
-        )
-        st.markdown("**Sheet inclusi nell'Excel:**")
-        sheets_info = [
-            ("Verifica_474",            "Check Circolare 474/D - semaforo colorato"),
-            ("Verifica_Regolamento",    "Check regolamento fondo - semaforo colorato"),
-            ("Dettaglio_Emittenti",     "Concentrazione per singolo emittente (con soglia colore)"),
-            ("Dettaglio_Gruppi",        "Concentrazione per gruppo emittente"),
-            ("DB_Grezzo",               "Portafoglio SHIP filtrato"),
-            ("Limiti_Regolamento_Raw",  "Limiti estratti dal regolamento via Claude AI"),
-            ("Legenda",                 "Legenda colori e note metodologiche"),
-        ]
-        for sheet, desc in sheets_info:
-            st.markdown(f"- **{sheet}** — {desc}")
-
-else:
-    st.info("Carica il portafoglio del fondo dalla sidebar per iniziare.")
-
-st.divider()
-st.caption("Verifica Limiti UL - Circolare ISVAP 474/D - v2.1")
+    return results
