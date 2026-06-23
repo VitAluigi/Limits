@@ -28,6 +28,8 @@ st.markdown("""
 .stApp {
     background-color: #00338D;
 }
+.stApp, .stApp p, .stApp label, .stApp h1, .stApp h2, .stApp h3 { color: white; }
+[data-testid="stSidebar"] { background-color: rgb(0, 40, 110); }
 .main-title { font-size:1.8rem; font-weight:700; color:#FFFFFF; margin-bottom:.2rem; }
 .sub-title { font-size:1rem;  color:#5A5A5A;  margin-bottom:1.5rem; }
 div[data-testid="stDownloadButton"] button {
