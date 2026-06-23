@@ -28,7 +28,7 @@ st.markdown("""
 .main-title { font-size:1.8rem; font-weight:700; color:#1F3864; margin-bottom:.2rem; }
 .sub-title { font-size:1rem;  color:#5A5A5A;  margin-bottom:1.5rem; }
 div[data-testid="stDownloadButton"] button {
-    background-color:#1F3864; color:white; font-weight:600;
+    background-color:#00338D; color:white; font-weight:600;
     border-radius:6px; padding:.5rem 1.5rem; width:100%;
 }
 .esito-ok { color:#276221; font-weight:700; }
@@ -55,12 +55,12 @@ with st.sidebar:
     st.divider()
 
     # 1. Regolamento fondo (opzionale)
-    st.markdown("**Regolamento del fondo / gestione** *(opzionale)*")
+    st.markdown("**Regolamento del fondo** *(opzionale)*")
     pdf_reg = st.file_uploader("PDF regolamento", type=["pdf"],
                                key="up_reg", label_visibility="collapsed")
     if pdf_reg:
         if st.button("Estrai limiti regolamento", use_container_width=True):
-            with st.spinner("Analisi PDF con Claude AI…"):
+            with st.spinner("Analisi PDF con AI…"):
                 try:
                     testo = extract_text_from_pdf(pdf_reg.read())
                     st.session_state.limiti_reg = estrai_limiti_regolamento(testo)
@@ -74,8 +74,8 @@ with st.sidebar:
     st.divider()
 
     # 2. Portafoglio SHIP
-    st.markdown("**Portafoglio SHIP** *(obbligatorio)*")
-    ship_file = st.file_uploader("File SHIP (.xlsx)", type=["xlsx", "xls"],
+    st.markdown("**Portafoglio Società** *(obbligatorio)*")
+    ship_file = st.file_uploader("File Posizioni (.xlsx)", type=["xlsx", "xls"],
                                   key="up_ship", label_visibility="collapsed")
     if ship_file:
         if st.button("Carica portafoglio", use_container_width=True):
@@ -130,7 +130,7 @@ if st.session_state.df_ship is not None:
         ("tipo_gestione", "Valuation Area"),
         ("denominazione_impresa", "Compagnia"),
         ("denominazione_portafoglio", "Portafoglio"),
-        ("denominazione_gestione", "Gestione / SAG"),
+        ("denominazione_gestione", "SAG"),
     ]
 
     col_f1, col_f2, col_f3, col_f4 = st.columns(4)
