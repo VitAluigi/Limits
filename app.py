@@ -25,6 +25,9 @@ st.set_page_config(
 
 st.markdown("""
 <style>
+.stApp {
+    background-color: #00338D;
+}
 .main-title { font-size:1.8rem; font-weight:700; color:#FFFFFF; margin-bottom:.2rem; }
 .sub-title { font-size:1rem;  color:#5A5A5A;  margin-bottom:1.5rem; }
 div[data-testid="stDownloadButton"] button {
