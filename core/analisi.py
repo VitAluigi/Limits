@@ -10,31 +10,25 @@ from dataclasses import dataclass, field
 # Costanti regolamentari (Sezione 3 Circolare 474/D)
 # ---------------------------------------------------------------------------
 
-# Security Classification che rappresentano fondi (OICR)
 OICR_CLASSES = {
     "Money market fund", "Real Estate fund", "Fixed Income fund",
     "Mixed fund", "Hedge fund", "Equity fund",
 }
 
-# Security Classification che rappresentano strumenti monetari
 MONETARI_CLASSES = {
     "Money market fund",
 }
-# Product types monetari diretti
 MONETARI_PRODUCT_TYPES = {
     "Cash",
 }
-# Security Class diretti che sono monetari
 MONETARI_SECURITY_CLASSES = {
     "Money market fund",
 }
 
-# Security Classification assimilabili ad azioni / azionari (escluse dal minimo rating)
 AZIONARIO_CLASSES = {
     "Share", "Equity fund", "Real Estate Shares", "Private Equities",
 }
 
-# Strumenti da escludere dal denominatore
 ESCLUSI_PRODUCT_TYPES = {
     "Repurchase Agreement", "Interest rate swap (IRS)", "FX Forward",
     "Credit Default Swap (CDS)", "Securities  Forward",
@@ -49,7 +43,7 @@ RATING_ORDER_SP = [
     "B+","B","B-",
     "CCC+","CCC","CCC-","CC","C","D",
 ]
-RATING_MIN_474 = set(RATING_ORDER_SP[:RATING_ORDER_SP.index("BB") + 1])  # ≥ BB
+RATING_MIN_474 = set(RATING_ORDER_SP[:RATING_ORDER_SP.index("BB") + 1])
 
 # ---------------------------------------------------------------------------
 # Helper
@@ -65,11 +59,6 @@ def _totale(df: pd.DataFrame) -> float:
     col = _col(df, "valore_mercato", "valore_bilancio")
     if col is None:
         return 0.0
-    mask_esclusi = (
-        df.get("product_type", pd.Series(dtype=str)).isin(ESCLUSI_PRODUCT_TYPES)
-        | df.get("security_class", pd.Series(dtype=str)).isin({"Not assigned"})
-        .combine(df.get("product_type", pd.Series(dtype=str)).isin(ESCLUSI_PRODUCT_TYPES), lambda a, b: a & b)
-    )
     if "escluso_calcolo" in df.columns:
         return float(df.loc[~df["escluso_calcolo"], col].sum())
     return float(df[col].sum())
@@ -82,12 +71,6 @@ def _pct(valore: float, totale: float) -> float:
 def _is_azionario(row: pd.Series) -> bool:
     sc = str(row.get("security_class", "")).strip()
     return sc in AZIONARIO_CLASSES
-
-def _rating_below_bb(row: pd.Series) -> bool:
-    if _is_azionario(row):
-        return False
-    r = str(row.get("rating_norm", "NR")).strip()
-    return r == "NR" or r not in RATING_MIN_474
 
 def _esito(valore_pct: float, limite_pct: float | None,
            minimo_pct: float | None = None) -> tuple[str, float | None]:
@@ -115,7 +98,7 @@ class CheckResult:
     articolo: str = ""
 
 # ---------------------------------------------------------------------------
-# CHECK 1 — Vendite allo scoperto (Short selling vietato)
+# CHECK 1 — Vendite allo scoperto
 # ---------------------------------------------------------------------------
 
 def check_short_selling(df: pd.DataFrame) -> CheckResult:
@@ -125,9 +108,9 @@ def check_short_selling(df: pd.DataFrame) -> CheckResult:
         det = "Colonna Long/Short non presente nel SHIP"
     else:
         tot = _totale(df)
-        short_val = df.loc[df[col].astype(str).str.lower() == "S", "valore_mercato"].sum()
+        short_val = df.loc[df[col].astype(str).str.lower() == "s", "valore_mercato"].sum()
         short_pct = _pct(short_val, tot)
-        det = f"Posizioni short: {short_pct:.2f}% del portafoglio"
+        det = f"Posizioni short: {short_pct:.2f}% del fondo"
 
     esito, sc = _esito(short_pct, 0.0)
     return CheckResult(
@@ -144,7 +127,7 @@ def check_short_selling(df: pd.DataFrame) -> CheckResult:
     )
 
 # ---------------------------------------------------------------------------
-# CHECK 2 — Divieto investimenti in merci / commodities
+# CHECK 2 — Divieto commodities
 # ---------------------------------------------------------------------------
 
 def check_commodities(df: pd.DataFrame) -> CheckResult:
@@ -198,9 +181,6 @@ def check_monetari(df: pd.DataFrame) -> CheckResult:
         mask |= df[col_class].isin(MONETARI_SECURITY_CLASSES)
     if col_ptype:
         mask |= df[col_ptype].isin(MONETARI_PRODUCT_TYPES)
-
-    # Includi anche i pronti contro termine (monetari)
-    if col_ptype:
         mask |= df[col_ptype].astype(str).str.lower().str.contains("repo|pronti|money market", na=False)
 
     val = df.loc[mask, col_val].sum()
@@ -221,9 +201,8 @@ def check_monetari(df: pd.DataFrame) -> CheckResult:
         articolo="Par.2 Circ. 474/D",
     )
 
-
 # ---------------------------------------------------------------------------
-# CHECK 4 — Limite titoli non quotati ≤ 10% (non previdenziale) / 25% (prev.)
+# CHECK 4 — Limite titoli non quotati
 # ---------------------------------------------------------------------------
 
 def check_non_quotati(df: pd.DataFrame,
@@ -245,7 +224,6 @@ def check_non_quotati(df: pd.DataFrame,
     else:
         mask_nq = pd.Series(False, index=df.index)
 
-    # Escludi derivati/repo dal conteggio
     if "escluso_calcolo" in df.columns:
         mask_nq &= ~df["escluso_calcolo"]
 
@@ -253,7 +231,6 @@ def check_non_quotati(df: pd.DataFrame,
     pct = _pct(val, tot)
     esito, sc = _esito(pct, limite_pct)
 
-    # Breakdown per categoria
     col_class = _col(df, "security_class")
     if col_class:
         breakdown = df.loc[mask_nq].groupby(col_class)[col_val].sum().sort_values(ascending=False)
@@ -275,9 +252,8 @@ def check_non_quotati(df: pd.DataFrame,
         articolo="Par.2 Circ. 474/D",
     )
 
-
 # ---------------------------------------------------------------------------
-# CHECK 5 — Rating minimo BB (titoli < BB o NR ≤ 5%)
+# CHECK 5 — Rating minimo BB
 # ---------------------------------------------------------------------------
 
 def check_rating_minimo(df: pd.DataFrame, limite_pct: float = 5.0) -> CheckResult:
@@ -289,7 +265,6 @@ def check_rating_minimo(df: pd.DataFrame, limite_pct: float = 5.0) -> CheckResul
                            f"Rating < BB o NR ≤ {limite_pct}%", limite_pct, None,
                            0.0, "NON RILEVABILE", None, "Colonna rating non disponibile")
 
-    # Maschera titoli sotto soglia (esclude azionari e derivati)
     col_class = _col(df, "security_class")
     excl = df.get("escluso_calcolo", pd.Series(False, index=df.index))
 
@@ -307,7 +282,6 @@ def check_rating_minimo(df: pd.DataFrame, limite_pct: float = 5.0) -> CheckResul
     pct = _pct(val, tot)
     esito, sc = _esito(pct, limite_pct)
 
-    # Dettaglio distribuzione rating
     if "rating_norm" in df.columns:
         rating_dist = (df.loc[mask_below]
                        .groupby("rating_norm")[col_val].sum()
@@ -330,21 +304,14 @@ def check_rating_minimo(df: pd.DataFrame, limite_pct: float = 5.0) -> CheckResul
         articolo="Par.1 Circ. 474/D",
     )
 
-
 # ---------------------------------------------------------------------------
-# CHECK 6 — Limite per singolo emittente ≤ 10%
-#           (esclusi titoli di Stato UE e sovrannazionali con rating AAA)
+# CHECK 6 — Concentrazione emittente ≤ 10%
 # ---------------------------------------------------------------------------
 
 def check_concentrazione_emittente(df: pd.DataFrame,
                                    limite_pct: float = 10.0) -> list[CheckResult]:
-    """
-    Restituisce un CheckResult sintetico (max emittente)
-    + una lista di emittenti in sforamento.
-    """
     col_emit = _col(df, "denominazione_emittente")
     col_val = _col(df, "valore_mercato", "valore_bilancio")
-    col_class = _col(df, "security_class")
     tot = _totale(df)
 
     if not col_emit or col_val is None or tot == 0:
@@ -353,11 +320,9 @@ def check_concentrazione_emittente(df: pd.DataFrame,
                             limite_pct, None, 0.0, "NON RILEVABILE", None,
                             "Colonna emittente o valore non trovata")]
 
-    # Esclude derivati/repo e Titoli di Stato UE con rating ≥ AAA (esentati)
     excl = df.get("escluso_calcolo", pd.Series(False, index=df.index))
     df_work = df.loc[~excl].copy()
 
-    # Identifica titoli esenti (gov bonds UE o sovrannazionali AAA)
     STATI_UE_KEY = ["govt bond", "government bond", "titoli di stato"]
     def _esentato(row):
         sc = str(row.get("security_class", "")).lower()
@@ -394,7 +359,6 @@ def check_concentrazione_emittente(df: pd.DataFrame,
         articolo="Par.2 Circ. 474/D",
     ))
 
-    # Una riga per ogni emittente in sforamento
     for emit, pct_v in emit_sfora.items():
         results.append(CheckResult(
             norma="Circ. 474/D Par.2",
@@ -411,9 +375,8 @@ def check_concentrazione_emittente(df: pd.DataFrame,
 
     return results
 
-
 # ---------------------------------------------------------------------------
-# CHECK 7 — Limite per gruppo di controllo ≤ 30%
+# CHECK 7 — Concentrazione gruppo ≤ 30%
 # ---------------------------------------------------------------------------
 
 def check_concentrazione_gruppo(df: pd.DataFrame,
@@ -442,7 +405,7 @@ def check_concentrazione_gruppo(df: pd.DataFrame,
     top5 = "; ".join(f"{k}: {v:.2f}%" for k, v in grp_pct.head(5).items())
     det = f"Gruppo max: {grp_pct.index[0] if len(grp_pct) else 'N/A'} ({max_pct:.2f}%). Top 5: {top5}"
     if len(gruppi_sfora):
-        det += f" | SFORA: {', '.join(f'{k} ({v:.2f}%)' for k, v in gruppi_sfora.items())}"
+        det += f" | SFORA: {', '.join(f'{k} ({v:.2f}%)' for k,v in gruppi_sfora.items())}"
 
     results.append(CheckResult(
         norma="Circ. 474/D Par.2",
@@ -473,9 +436,8 @@ def check_concentrazione_gruppo(df: pd.DataFrame,
 
     return results
 
-
 # ---------------------------------------------------------------------------
-# CHECK 8 — OICR non armonizzati (AIF) ≤ 30% complessivo
+# CHECK 8 — OICR non armonizzati (AIF) ≤ 30%
 # ---------------------------------------------------------------------------
 
 def check_oicr_non_armonizzati(df: pd.DataFrame,
@@ -496,7 +458,6 @@ def check_oicr_non_armonizzati(df: pd.DataFrame,
     pct = _pct(val, tot)
     esito, sc = _esito(pct, limite_pct)
 
-    # Breakdown per security class
     col_class = _col(df, "security_class")
     if col_class:
         bd = df.loc[mask].groupby(col_class)[col_val].sum().sort_values(ascending=False)
@@ -518,9 +479,8 @@ def check_oicr_non_armonizzati(df: pd.DataFrame,
         articolo="Par.2 Circ. 474/D",
     )
 
-
 # ---------------------------------------------------------------------------
-# CHECK 9 — Singolo OICR armonizzato (UCITS) ≤ 25%
+# CHECK 9 — Singolo OICR UCITS ≤ 25%
 # ---------------------------------------------------------------------------
 
 def check_singolo_ucits(df: pd.DataFrame,
@@ -586,9 +546,8 @@ def check_singolo_ucits(df: pd.DataFrame,
 
     return results
 
-
 # ---------------------------------------------------------------------------
-# CHECK 10 — Singolo OICR non armonizzato (AIF) ≤ 10%
+# CHECK 10 — Singolo OICR AIF ≤ 10%
 # ---------------------------------------------------------------------------
 
 def check_singolo_aif(df: pd.DataFrame,
@@ -653,21 +612,12 @@ def check_singolo_aif(df: pd.DataFrame,
 
     return results
 
-
 # ---------------------------------------------------------------------------
-# CHECK REGOLAMENTO — limiti definiti nel regolamento del fondo
-# (flessibile: riceve lista dizionari estratti da Claude)
+# CHECK REGOLAMENTO — limiti estratti dal regolamento del fondo
 # ---------------------------------------------------------------------------
 
 def check_regolamento(df: pd.DataFrame,
                        limiti: list[dict]) -> list[CheckResult]:
-    """
-    Verifica i limiti estratti dal regolamento del fondo.
-    Supporta:
-      - categoria_asset: matching per security_class / valuation_class
-      - limite_max_pct / limite_min_pct
-      - limite_emittente_pct: max singolo emittente sul sottoinsieme
-    """
     col_val = _col(df, "valore_mercato", "valore_bilancio")
     col_class = _col(df, "security_class", "valuation_class")
     tot = _totale(df)
@@ -676,7 +626,6 @@ def check_regolamento(df: pd.DataFrame,
     if col_val is None or tot == 0:
         return results
 
-    # Mappa macro-categoria → lista security_class
     MACRO_MAP = {
         "obbligazionari": {
             "Govt bonds <1 year", "Govt bonds >1 year <10 years", "Govt bonds >10 years",
@@ -699,7 +648,7 @@ def check_regolamento(df: pd.DataFrame,
         for macro, sc_set in MACRO_MAP.items():
             if macro in cat_lower:
                 return sc_set
-        return {cat_str}  # uso letterale come fallback
+        return {cat_str}
 
     for lim in limiti:
         cat = lim.get("categoria_asset", "")
@@ -708,7 +657,6 @@ def check_regolamento(df: pd.DataFrame,
         lim_emit = lim.get("limite_emittente_pct")
         sezione = lim.get("sezione", lim.get("articolo", ""))
 
-        # Calcola % della categoria
         sc_set = _match_classes(cat) if col_class else set()
         if col_class and sc_set:
             mask = df[col_class].isin(sc_set)
@@ -740,7 +688,6 @@ def check_regolamento(df: pd.DataFrame,
             articolo=sezione,
         ))
 
-        # Check emittente sul sottoinsieme
         if lim_emit is not None and any_match:
             col_emit = _col(df, "denominazione_emittente")
             if col_emit:
@@ -764,9 +711,8 @@ def check_regolamento(df: pd.DataFrame,
 
     return results
 
-
 # ---------------------------------------------------------------------------
-# Runner principale — esegue tutti i check 474 + regolamento
+# Runner principale
 # ---------------------------------------------------------------------------
 
 def esegui_tutti_check(
@@ -775,10 +721,6 @@ def esegui_tutti_check(
     limite_non_quotati: float = 10.0,
     tipo_fondo: str = "non previdenziale",
 ) -> list[CheckResult]:
-    """
-    Esegue l'intera batteria di check.
-    Restituisce lista CheckResult ordinata per check_id.
-    """
     results: list[CheckResult] = []
 
     results.append(check_short_selling(df))
