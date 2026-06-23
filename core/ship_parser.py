@@ -14,13 +14,13 @@ SHIP_COLS_MAP = {
     # Identificativi
     "Date":                                 "data_riferimento",
     "Valuation Area":                       "codice_area",
-    "Valuation Area Name":                  "tipo_gestione",
+    "Valuation Area Name":                  "tipo_area",
     "Company Code":                         "codice_impresa",
     "Company Code Name":                    "denominazione_impresa",
     "Portfolio":                            "codice_portafoglio",
     "Portfolio Name":                       "denominazione_portafoglio",
-    "Security Account Group":              "codice_gestione",
-    "Security Account Group Name":         "denominazione_gestione",
+    "Security Account Group":              "codice_fondo",
+    "Security Account Group Name":         "denominazione_fondo",
 
     # Classificazione strumento
     "Security Classification Name":        "security_class",
@@ -97,19 +97,15 @@ RATING_MIN_474 = {r for r in RATING_ORDER_SP if RATING_ORDER_SP.index(r) <= RATI
 
 
 def _normalize_rating(r) -> str | None:
-    """Restituisce il rating in scala S&P normalizzato, o None se N.D."""
     if pd.isna(r):
         return None
     r = str(r).strip().upper()
     if r in ("NR", "N/A", "NA", "NOT RATED", ""):
         return "NR"
-    # Prova conversione Moody's
     for m, sp in MOODYS_TO_SP.items():
         if r == m.upper():
             return sp
-    # Fitch e S&P usano la stessa scala
     if r in [x.upper() for x in RATING_ORDER_SP]:
-        # restituisce con la capitalizzazione canonica
         idx = [x.upper() for x in RATING_ORDER_SP].index(r)
         return RATING_ORDER_SP[idx]
     return None
@@ -123,7 +119,6 @@ def load_ship(file_bytes: bytes) -> pd.DataFrame:
     xls = pd.ExcelFile(io.BytesIO(file_bytes))
     sheet = xls.sheet_names[0]
 
-    # Trova la riga header: quella con più valori non-null
     df_raw = pd.read_excel(xls, sheet_name=sheet, header=None)
     header_row = 0
     max_nn = 0
@@ -136,7 +131,6 @@ def load_ship(file_bytes: bytes) -> pd.DataFrame:
     df = pd.read_excel(xls, sheet_name=sheet, header=header_row)
     df.columns = [str(c).strip() for c in df.columns]
 
-    # Rinomina colonne
     rename = {}
     already = set()
     for orig, norm in SHIP_COLS_MAP.items():
@@ -146,18 +140,15 @@ def load_ship(file_bytes: bytes) -> pd.DataFrame:
 
     df = df.rename(columns=rename).dropna(how="all").reset_index(drop=True)
 
-    # Numerici
     for col in _NUMERIC_COLS:
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors="coerce")
 
-    # Normalizza listed: "X" → True, anything else → False
     if "listed" in df.columns:
         df["is_listed"] = df["listed"].astype(str).str.strip().str.upper() == "X"
     else:
-        df["is_listed"] = True  # fallback conservativo
+        df["is_listed"] = True
 
-    # Calcola rating sintetico con fallback chain S&P → Fitch → Moody's → IFRS9
     def _best_rating(row):
         for col in ["rating_sp", "rating_fitch", "rating_moodys", "rating_ifrs9"]:
             if col in row.index:
@@ -168,12 +159,10 @@ def load_ship(file_bytes: bytes) -> pd.DataFrame:
 
     df["rating_norm"] = df.apply(_best_rating, axis=1)
 
-    # Flag: la posizione è sotto soglia minima 474 (< BB) o non rated
     df["rating_below_bb"] = df["rating_norm"].apply(
         lambda r: r == "NR" or r not in RATING_MIN_474
     )
 
-    # Flag: strumento escluso dal denominatore (derivati, repo…)
     if "product_type" in df.columns:
         df["escluso_calcolo"] = df["product_type"].isin(PRODUCT_TYPES_ESCLUSI)
     else:
@@ -182,24 +171,25 @@ def load_ship(file_bytes: bytes) -> pd.DataFrame:
     return df
 
 
-def get_gestioni(df: pd.DataFrame) -> list[str]:
-    for c in ["denominazione_gestione", "codice_gestione"]:
+def get_fondi(df: pd.DataFrame) -> list[str]:
+    """Restituisce la lista dei fondi (SAG) presenti nel portafoglio."""
+    for c in ["denominazione_fondo", "codice_fondo"]:
         if c in df.columns:
             vals = sorted(df[c].dropna().astype(str).unique().tolist())
             if vals:
                 return vals
-    return ["(tutte)"]
+    return ["(tutti)"]
 
 
 def filter_portafoglio(df: pd.DataFrame,
-                       gestione: str | None = None,
+                       fondo: str | None = None,
                        portafoglio: str | None = None) -> pd.DataFrame:
-    """Filtra per gestione e/o portafoglio e rimuove righe escluse dal calcolo."""
+    """Filtra per fondo e/o portafoglio."""
     mask = pd.Series(True, index=df.index)
-    if gestione and gestione not in ("(tutte)", ""):
-        for col in ["denominazione_gestione", "codice_gestione"]:
+    if fondo and fondo not in ("(tutti)", ""):
+        for col in ["denominazione_fondo", "codice_fondo"]:
             if col in df.columns:
-                mask &= df[col].astype(str).str.strip() == gestione.strip()
+                mask &= df[col].astype(str).str.strip() == fondo.strip()
                 break
     if portafoglio and portafoglio not in ("(tutti)", ""):
         for col in ["denominazione_portafoglio", "codice_portafoglio"]:
