@@ -27,6 +27,7 @@ MONETARI_SECURITY_CLASSES = {
 
 AZIONARIO_CLASSES = {
     "Share", "Equity fund", "Real Estate Shares", "Private Equities",
+    "Hedge fund",   # fondi azionari/multi-asset: esenti dal check rating
 }
 
 ESCLUSI_PRODUCT_TYPES = {
@@ -176,12 +177,16 @@ def check_monetari(df: pd.DataFrame) -> CheckResult:
                            0.0, "NON RILEVABILE", None,
                            "Colonna valore non trovata")
 
+    # La maschera considera solo posizioni nel denominatore (non derivati/repo già esclusi)
+    excl_mask = df.get("escluso_calcolo", pd.Series(False, index=df.index))
     mask = pd.Series(False, index=df.index)
     if col_class:
         mask |= df[col_class].isin(MONETARI_SECURITY_CLASSES)
     if col_ptype:
         mask |= df[col_ptype].isin(MONETARI_PRODUCT_TYPES)
-        mask |= df[col_ptype].astype(str).str.lower().str.contains("repo|pronti|money market", na=False)
+    # Nota: repo e money-market via stringa sono già in ESCLUSI_PRODUCT_TYPES
+    # → non vanno inclusi nel numeratore monetari (sarebbero fuori dal denominatore)
+    mask &= ~excl_mask
 
     val = df.loc[mask, col_val].sum()
     pct = _pct(val, tot)
@@ -453,16 +458,20 @@ def check_oicr_non_armonizzati(df: pd.DataFrame,
                            "Colonna Fund Type non disponibile")
 
     excl = df.get("escluso_calcolo", pd.Series(False, index=df.index))
+    col_class = _col(df, "security_class")
+    # Applica il limite solo ai veri OICR non armonizzati:
+    # bond/azioni con fund_type=AIF per errore nel dato SHIP non sono AIF
     mask = (~excl) & (df[col_ft].astype(str).str.upper() == "AIF")
+    if col_class:
+        mask &= df[col_class].isin(OICR_CLASSES)
     val = df.loc[mask, col_val].sum()
     pct = _pct(val, tot)
     esito, sc = _esito(pct, limite_pct)
 
-    col_class = _col(df, "security_class")
     if col_class:
         bd = df.loc[mask].groupby(col_class)[col_val].sum().sort_values(ascending=False)
         det_parts = [f"{k}: €{v:,.0f}" for k, v in bd.items()]
-        det = f"AIF totale: {pct:.2f}%. Categorie: {'; '.join(det_parts)}"
+        det = f"AIF totale (solo OICR): {pct:.2f}%. Categorie: {'; '.join(det_parts)}"
     else:
         det = f"AIF totale: €{val:,.0f} ({pct:.2f}%)"
 
@@ -497,7 +506,12 @@ def check_singolo_ucits(df: pd.DataFrame,
                             "Colonne Fund Type / ISIN non disponibili")]
 
     excl = df.get("escluso_calcolo", pd.Series(False, index=df.index))
+    col_class = _col(df, "security_class")
+    # Applica il limite solo ai veri OICR (fund_type UCITS su security_class fondi)
+    # Strumenti come bond/azioni con fund_type=UCITS per errore nel dato non sono OICR
     mask_ucits = (~excl) & (df[col_ft].astype(str).str.upper() == "UCITS")
+    if col_class:
+        mask_ucits &= df[col_class].isin(OICR_CLASSES)
     df_ucits = df.loc[mask_ucits]
 
     if df_ucits.empty:
@@ -563,7 +577,10 @@ def check_singolo_aif(df: pd.DataFrame,
                             limite_pct, None, 0.0, "NON RILEVABILE", None)]
 
     excl = df.get("escluso_calcolo", pd.Series(False, index=df.index))
+    col_class = _col(df, "security_class")
     mask_aif = (~excl) & (df[col_ft].astype(str).str.upper() == "AIF")
+    if col_class:
+        mask_aif &= df[col_class].isin(OICR_CLASSES)
     df_aif = df.loc[mask_aif]
 
     if df_aif.empty:
@@ -626,29 +643,51 @@ def check_regolamento(df: pd.DataFrame,
     if col_val is None or tot == 0:
         return results
 
-    MACRO_MAP = {
-        "obbligazionari": {
-            "Govt bonds <1 year", "Govt bonds >1 year <10 years", "Govt bonds >10 years",
-            "Ordinary bond", "Subordinated bond", "Infra Bonds", "Index Linked Bonds",
-            "Mortgage Backed Security", "Asset Backed Security", "Perpetual Notes",
-            "Credit linked note",
-        },
-        "azionari": {"Share", "Real Estate Shares", "Private Equities"},
-        "immobiliari": {"Real Estate fund", "Real Estate Shares"},
-        "fondi": {"Fixed Income fund", "Mixed fund", "Hedge fund", "Equity fund",
-                  "Real Estate fund", "Money market fund"},
-        "liquidità": {"Money market fund"},
-        "altri strumenti": {"Fixed Income fund", "Private equity fund", "Mixed fund",
-                            "Hedge fund", "Real Estate fund", "Equity fund",
-                            "Money market fund"},
+    # ── MACRO_MAP ────────────────────────────────────────────────────────────
+    # Chiavi ordinate dalla più specifica alla più generica: il matching usa
+    # substring (chiave IN cat_lower), quindi le chiavi più lunghe devono
+    # stare prima per evitare che "azionari" catturi "azionario tecnologico".
+    _OBB = {
+        "Govt bonds <1 year", "Govt bonds >1 year <10 years", "Govt bonds >10 years",
+        "Ordinary bond", "Subordinated bond", "Infra Bonds", "Index Linked Bonds",
+        "Mortgage Backed Security", "Asset Backed Security", "Perpetual Notes",
+        "Credit linked note", "Loan",   # Loan = strumento di debito
     }
+    _AZ = {
+        "Share", "Real Estate Shares", "Private Equities", "Equity fund",
+    }
+    MACRO_MAP: list[tuple[str, set[str]]] = [
+        # — più specifiche prima (ordine per lunghezza chiave decrescente) —
+        ("azionario tecnolog", _AZ),          # "Azionario Tecnologico"
+        ("altri strumenti",    {"Fixed Income fund","Private equity fund","Mixed fund",
+                                "Hedge fund","Real Estate fund","Equity fund","Money market fund"}),
+        ("obbligazionari",     _OBB),
+        ("infrastruttu",       {"Infra Bonds"}),          # "Infrastrutture"
+        ("immobiliar",         {"Real Estate fund","Real Estate Shares"}),
+        ("flessibil",          {"Mixed fund","Fixed Income fund"}),  # "Flessibile"
+        ("bilancia",           {"Mixed fund"}),            # "Bilanciato"
+        ("monetari",           {"Money market fund"}),     # "Monetario" / "Monetari"
+        ("prestiti",           {"Loan"}),                  # "Prestiti"
+        ("liquid",             {"Money market fund"}),     # "Liquidità" / "Disponibilità liquide"
+        ("azionari",           _AZ),
+        ("fondi",              {"Fixed Income fund","Mixed fund","Hedge fund",
+                                "Equity fund","Real Estate fund","Money market fund"}),
+    ]
 
-    def _match_classes(cat_str: str) -> set[str]:
+    # Categorie regolamento che includono anche la liquidità Cash
+    # (product_type = "Cash", security_class = "Not assigned")
+    _INCLUDE_CASH_PT = {"monetari", "liquid"}
+
+    col_ptype = _col(df, "product_type")
+
+    def _match_classes(cat_str: str) -> tuple[set[str], bool]:
+        """Restituisce (security_classes, include_cash_product_type)."""
         cat_lower = cat_str.lower().strip()
-        for macro, sc_set in MACRO_MAP.items():
+        for macro, sc_set in MACRO_MAP:
             if macro in cat_lower:
-                return sc_set
-        return {cat_str}
+                include_cash = macro in _INCLUDE_CASH_PT
+                return sc_set, include_cash
+        return {cat_str}, False   # fallback letterale, no Cash
 
     for lim in limiti:
         cat = lim.get("categoria_asset", "")
@@ -657,11 +696,21 @@ def check_regolamento(df: pd.DataFrame,
         lim_emit = lim.get("limite_emittente_pct")
         sezione = lim.get("sezione", lim.get("articolo", ""))
 
-        sc_set = _match_classes(cat) if col_class else set()
+        sc_set, include_cash = _match_classes(cat)
+
+        # Maschera su security_class
         if col_class and sc_set:
             mask = df[col_class].isin(sc_set)
         else:
             mask = pd.Series(False, index=df.index)
+
+        # Per "Monetario" / "Disponibilità liquide" aggiungi anche Cash (product_type)
+        if include_cash and col_ptype:
+            mask |= df[col_ptype].isin({"Cash"})
+
+        # Escludi posizioni fuori denominatore
+        excl_calc = df.get("escluso_calcolo", pd.Series(False, index=df.index))
+        mask &= ~excl_calc
 
         val = df.loc[mask, col_val].sum()
         pct = _pct(val, tot)
