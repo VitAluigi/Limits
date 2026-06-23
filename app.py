@@ -25,8 +25,8 @@ st.set_page_config(
 
 st.markdown("""
 <style>
-.main-title { font-size:1.8rem; font-weight:700; color:#FFFFFF; margin-bottom:.2rem; }
-.sub-title { font-size:1rem;  color:#5A5A5A;  margin-bottom:1.5rem; }
+.main-title { font-size:1.8rem; font-weight:700; color:#FFFFFF; margin-bottom:.2rem; background-color: #00338D;}
+.sub-title { font-size:1rem;  color:#5A5A5A;  margin-bottom:1.5rem; background-color: #00338D;}
 div[data-testid="stDownloadButton"] button {
     background-color:#00338D; color:white; font-weight:600;
     border-radius:6px; padding:.5rem 1.5rem; width:100%;
@@ -40,7 +40,7 @@ div[data-testid="stDownloadButton"] button {
 
 st.markdown('<div class="main-title">Verifica Limiti Fondi Interni UL</div>',
             unsafe_allow_html=True)
-st.markdown('<div class="sub-title">Circolare ISVAP 474/D · Regolamento fondo</div>',
+st.markdown('<div class="sub-title">Circolare ISVAP 474/D - Regolamento fondo</div>',
             unsafe_allow_html=True)
 
 # -- Session state -------------------------------------------------------------
