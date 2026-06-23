@@ -196,7 +196,7 @@ def _write_legend_sheet(ws):
         ("Verde", "OK", "Limite rispettato"),
         ("Rosso", "SFORAMENTO MAX", "Valore effettivo supera il limite massimo"),
         ("Giallo", "SOTTO MINIMO", "Valore effettivo inferiore al limite minimo"),
-        ("Grigio", "NON RILEVABILE", "Impossibile calcolare — dati mancanti o categoria non mappata"),
+        ("Grigio", "NON RILEVABILE", "Impossibile calcolare - dati mancanti o categoria non mappata"),
     ]
     COLORS = [C_BLUE, C_OK, C_ERR, C_WARN, C_GRAY]
     for i, (col_color, esito, desc) in enumerate(legenda, 5):
@@ -258,7 +258,7 @@ def genera_excel(
     ws_cover["B2"].alignment = Alignment(horizontal="left", vertical="center")
     ws_cover.row_dimensions[2].height = 28
 
-    ws_cover["B3"].value = "Verifica Limiti Fondi Interni UL — Circolare ISVAP 474/D"
+    ws_cover["B3"].value = "Verifica Limiti Fondi Interni UL - Circolare ISVAP 474/D"
     ws_cover["B3"].font = Font(name=FONT_BOLD, size=14, bold=True, color=C_BLUE)
     ws_cover["B3"].alignment = Alignment(horizontal="left", vertical="center")
     ws_cover.row_dimensions[3].height = 22
@@ -274,8 +274,8 @@ def genera_excel(
 
     meta = [
         ("Fondo / Gestione", info_fondo.get("nome_fondo", nome_fondo)),
-        ("Tipo", info_fondo.get("tipo", "—")),
-        ("Compagnia", info_fondo.get("compagnia", "—")),
+        ("Tipo", info_fondo.get("tipo", "-")),
+        ("Compagnia", info_fondo.get("compagnia", "-")),
         ("Tipo prestazione", info_fondo.get("tipo_prestazione", "non_previdenziale")),
         ("Data elaborazione", datetime.date.today().strftime("%d/%m/%Y")),
         ("N. posizioni", f"{len(df_portafoglio):,}"),
@@ -293,14 +293,14 @@ def genera_excel(
     # -- SHEET 474 -------------------------------------------------------------
     ws_474 = wb.create_sheet("Verifica_474")
     _write_check_sheet(ws_474, results_474,
-                       "Verifica limiti — Circolare ISVAP 474/D",
+                       "Verifica limiti - Circolare ISVAP 474/D",
                        header_bg=C_BLUE)
 
     # -- SHEET REGOLAMENTO -----------------------------------------------------
     if results_reg:
         ws_reg = wb.create_sheet("Verifica_Regolamento")
         _write_check_sheet(ws_reg, results_reg,
-                           "Verifica limiti — Regolamento fondo",
+                           "Verifica limiti - Regolamento fondo",
                            header_bg=C_BLUE)
 
     # -- DETTAGLIO EMITTENTI ---------------------------------------------------
