@@ -1,8 +1,5 @@
 """
 analisi.py
-Motore di verifica dei limiti della Circolare ISVAP 474/D (fondi interni UL/IL).
-Ogni check è una funzione autonoma che restituisce un dizionario con:
-  - descrizione, valore_effettivo_pct, limite_pct, esito, dettaglio
 """
 
 from __future__ import annotations
@@ -21,7 +18,7 @@ OICR_CLASSES = {
 
 # Security Classification che rappresentano strumenti monetari
 MONETARI_CLASSES = {
-    "Money market fund",       # OICR monetario
+    "Money market fund",
 }
 # Product types monetari diretti
 MONETARI_PRODUCT_TYPES = {
@@ -54,7 +51,6 @@ RATING_ORDER_SP = [
 ]
 RATING_MIN_474 = set(RATING_ORDER_SP[:RATING_ORDER_SP.index("BB") + 1])  # ≥ BB
 
-
 # ---------------------------------------------------------------------------
 # Helper
 # ---------------------------------------------------------------------------
@@ -65,9 +61,7 @@ def _col(df: pd.DataFrame, *candidates) -> str | None:
             return c
     return None
 
-
 def _totale(df: pd.DataFrame) -> float:
-    """Totale portafoglio escludendo derivati/repo."""
     col = _col(df, "valore_mercato", "valore_bilancio")
     if col is None:
         return 0.0
@@ -76,40 +70,32 @@ def _totale(df: pd.DataFrame) -> float:
         | df.get("security_class", pd.Series(dtype=str)).isin({"Not assigned"})
         .combine(df.get("product_type", pd.Series(dtype=str)).isin(ESCLUSI_PRODUCT_TYPES), lambda a, b: a & b)
     )
-    # Più semplice: usa la flag già calcolata dal parser
     if "escluso_calcolo" in df.columns:
         return float(df.loc[~df["escluso_calcolo"], col].sum())
     return float(df[col].sum())
-
 
 def _pct(valore: float, totale: float) -> float:
     if totale == 0:
         return 0.0
     return round(valore / totale * 100, 4)
 
-
 def _is_azionario(row: pd.Series) -> bool:
     sc = str(row.get("security_class", "")).strip()
     return sc in AZIONARIO_CLASSES
 
-
 def _rating_below_bb(row: pd.Series) -> bool:
-    """True se il titolo ha rating < BB o NR (e non è azionario)."""
     if _is_azionario(row):
         return False
     r = str(row.get("rating_norm", "NR")).strip()
     return r == "NR" or r not in RATING_MIN_474
 
-
 def _esito(valore_pct: float, limite_pct: float | None,
            minimo_pct: float | None = None) -> tuple[str, float | None]:
-    """Restituisce (esito, scostamento)."""
     if limite_pct is not None and valore_pct > limite_pct:
         return "SFORAMENTO MAX", round(valore_pct - limite_pct, 4)
     if minimo_pct is not None and valore_pct < minimo_pct:
         return "SOTTO MINIMO", round(valore_pct - minimo_pct, 4)
     return "OK", None
-
 
 # ---------------------------------------------------------------------------
 # Dataclass risultato check
@@ -128,19 +114,18 @@ class CheckResult:
     dettaglio: str = ""
     articolo: str = ""
 
-
 # ---------------------------------------------------------------------------
 # CHECK 1 — Vendite allo scoperto (Short selling vietato)
 # ---------------------------------------------------------------------------
 
 def check_short_selling(df: pd.DataFrame) -> CheckResult:
-    col = _col(df, "long_short")
+    col = _col(df, "Long/Short Position")
     if col is None:
         short_pct = 0.0
         det = "Colonna Long/Short non presente nel SHIP"
     else:
         tot = _totale(df)
-        short_val = df.loc[df[col].astype(str).str.lower() == "short", "valore_mercato"].sum()
+        short_val = df.loc[df[col].astype(str).str.lower() == "S", "valore_mercato"].sum()
         short_pct = _pct(short_val, tot)
         det = f"Posizioni short: {short_pct:.2f}% del portafoglio"
 
@@ -157,7 +142,6 @@ def check_short_selling(df: pd.DataFrame) -> CheckResult:
         dettaglio=det,
         articolo="Par.2 Circ. 474/D",
     )
-
 
 # ---------------------------------------------------------------------------
 # CHECK 2 — Divieto investimenti in merci / commodities
@@ -191,7 +175,6 @@ def check_commodities(df: pd.DataFrame) -> CheckResult:
         dettaglio=det,
         articolo="Par.2 Circ. 474/D",
     )
-
 
 # ---------------------------------------------------------------------------
 # CHECK 3 — Limite strumenti monetari ≤ 20%
