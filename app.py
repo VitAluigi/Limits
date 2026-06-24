@@ -1,6 +1,5 @@
 """
 app.py
-Streamlit app - Verifica limiti fondi interni UL / Circolare ISVAP 474/D
 """
 
 import streamlit as st
@@ -185,7 +184,6 @@ if st.session_state.df_ship is not None:
     limiti_tutti = st.session_state.limiti_reg or []
     fondo_reg_sel = None
     if limiti_tutti:
-        # Estrae il nome del fondo dal campo sezione: "Art. X - ... - Nome Fondo"
         def _fondo_da_sezione(s: str) -> str:
             parts = str(s).rsplit(" - ", 1)
             return parts[-1].strip() if len(parts) > 1 else "(tutti)"
@@ -295,13 +293,13 @@ if st.session_state.df_ship is not None:
         rows_474 = []
         for r in results_474:
             rows_474.append({
-                "Check":        r.check_id,
-                "Descrizione":  r.descrizione,
+                "Check": r.check_id,
+                "Descrizione": r.descrizione,
                 "Limite MAX %": r.limite_max_pct,
-                "Valore %":     r.valore_effettivo_pct,
-                "Esito":        r.esito,
-                "Scost. pp":    r.scostamento_pp,
-                "Dettaglio":    r.dettaglio[:80] + "…" if len(r.dettaglio) > 80 else r.dettaglio,
+                "Valore %": r.valore_effettivo_pct,
+                "Esito": r.esito,
+                "Scost. pp": r.scostamento_pp,
+                "Dettaglio": r.dettaglio[:80] + "…" if len(r.dettaglio) > 80 else r.dettaglio,
             })
 
         df_show = pd.DataFrame(rows_474)
@@ -321,12 +319,12 @@ if st.session_state.df_ship is not None:
             rows_reg = []
             for r in results_reg:
                 rows_reg.append({
-                    "Descrizione":  r.descrizione,
-                    "Art./Par.":    r.articolo,
+                    "Descrizione": r.descrizione,
+                    "Art./Par.": r.articolo,
                     "Limite MAX %": r.limite_max_pct,
                     "Limite MIN %": r.limite_min_pct,
-                    "Valore %":     r.valore_effettivo_pct,
-                    "Esito":        r.esito,
+                    "Valore %": r.valore_effettivo_pct,
+                    "Esito": r.esito,
                 })
             df_reg_show = pd.DataFrame(rows_reg)
             st.dataframe(
@@ -347,13 +345,13 @@ if st.session_state.df_ship is not None:
         )
         st.markdown("**Sheet inclusi nell'Excel:**")
         sheets_info = [
-            ("Verifica_474",            "Check Circolare 474/D - semaforo colorato"),
-            ("Verifica_Regolamento",    "Check regolamento fondo - semaforo colorato"),
-            ("Dettaglio_Emittenti",     "Concentrazione per singolo emittente (con soglia colore)"),
-            ("Dettaglio_Gruppi",        "Concentrazione per gruppo emittente"),
-            ("DB_Grezzo",               "Portafoglio SHIP filtrato"),
-            ("Limiti_Regolamento_Raw",  "Limiti estratti dal regolamento via Claude AI"),
-            ("Legenda",                 "Legenda colori e note metodologiche"),
+            ("Verifica_474", "Check Circolare 474/D - semaforo colorato"),
+            ("Verifica_Regolamento", "Check regolamento fondo - semaforo colorato"),
+            ("Dettaglio_Emittenti", "Concentrazione per singolo emittente (con soglia colore)"),
+            ("Dettaglio_Gruppi", "Concentrazione per gruppo emittente"),
+            ("DB_Grezzo", "Portafoglio SHIP filtrato"),
+            ("Limiti_Regolamento_Raw", "Limiti estratti dal regolamento via Claude AI"),
+            ("Legenda", "Legenda colori e note metodologiche"),
         ]
         for sheet, desc in sheets_info:
             st.markdown(f"- **{sheet}** — {desc}")
