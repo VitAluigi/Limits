@@ -51,6 +51,7 @@ SHIP_COLS_MAP = {
     "Issuer Country Name":                 "paese_emittente",
     "Issuer Ultimate Parent Numb Name":    "gruppo_emittente",    # 474 §2 limite gruppo 30%
     "Issuer Type Name":                    "issuer_type",
+    "Issuer Industry Name":                "issuer_industry",  # settore emittente per azionario settoriale
 
     # Valuta
     "Issue Currency":                      "valuta",
