@@ -90,7 +90,7 @@ def _col(df: pd.DataFrame, *candidates) -> str | None:
     return None
 
 def _totale(df: pd.DataFrame) -> float:
-    col = _col(df, "valore_mercato", "valore_bilancio")
+    col = _col(df, "valore_bilancio")
     if col is None:
         return 0.0
     if "escluso_calcolo" in df.columns:
@@ -166,13 +166,13 @@ def check_short_selling(df: pd.DataFrame) -> CheckResult:
 
 def check_commodities(df: pd.DataFrame) -> CheckResult:
     COMMOD_KEYWORDS = ["commodity", "commodit", "merci", "materie prime"]
-    col = _col(df, "security_class", "valuation_class")
+    col = _col(df, "security_class")
     if col is None:
         commod_pct = 0.0
         det = "Colonna classificazione non presente"
     else:
         tot = _totale(df)
-        col_val = _col(df, "valore_mercato", "valore_bilancio")
+        col_val = _col(df, "valore_bilancio")
         mask = df[col].astype(str).str.lower().apply(
             lambda v: any(kw in v for kw in COMMOD_KEYWORDS)
         )
@@ -199,9 +199,9 @@ def check_commodities(df: pd.DataFrame) -> CheckResult:
 
 def check_monetari(df: pd.DataFrame) -> CheckResult:
     LIMITE = 20.0
-    col_class = _col(df, "security_class", "valuation_class")
+    col_class = _col(df, "security_class")
     col_ptype = _col(df, "product_type")
-    col_val = _col(df, "valore_mercato", "valore_bilancio")
+    col_val = _col(df, "valore_bilancio")
     tot = _totale(df)
 
     if col_val is None or tot == 0:
@@ -247,7 +247,7 @@ def check_non_quotati(df: pd.DataFrame,
                       limite_pct: float = 10.0,
                       tipo_fondo: str = "non previdenziale") -> CheckResult:
     col_listed = _col(df, "is_listed", "listed")
-    col_val = _col(df, "valore_mercato", "valore_bilancio")
+    col_val = _col(df, "valore_bilancio")
     tot = _totale(df)
 
     if col_val is None or tot == 0:
@@ -295,7 +295,7 @@ def check_non_quotati(df: pd.DataFrame,
 # ---------------------------------------------------------------------------
 
 def check_rating_minimo(df: pd.DataFrame, limite_pct: float = 5.0) -> CheckResult:
-    col_val = _col(df, "valore_mercato", "valore_bilancio")
+    col_val = _col(df, "valore_bilancio")
     tot = _totale(df)
 
     if col_val is None or tot == 0 or "rating_norm" not in df.columns:
@@ -349,7 +349,7 @@ def check_rating_minimo(df: pd.DataFrame, limite_pct: float = 5.0) -> CheckResul
 def check_concentrazione_emittente(df: pd.DataFrame,
                                    limite_pct: float = 10.0) -> list[CheckResult]:
     col_emit = _col(df, "denominazione_emittente")
-    col_val = _col(df, "valore_mercato", "valore_bilancio")
+    col_val = _col(df, "valore_bilancio")
     tot = _totale(df)
 
     if not col_emit or col_val is None or tot == 0:
@@ -420,7 +420,7 @@ def check_concentrazione_emittente(df: pd.DataFrame,
 def check_concentrazione_gruppo(df: pd.DataFrame,
                                  limite_pct: float = 30.0) -> list[CheckResult]:
     col_gruppo = _col(df, "gruppo_emittente")
-    col_val = _col(df, "valore_mercato", "valore_bilancio")
+    col_val = _col(df, "valore_bilancio")
     tot = _totale(df)
 
     if not col_gruppo or col_val is None or tot == 0:
@@ -481,7 +481,7 @@ def check_concentrazione_gruppo(df: pd.DataFrame,
 def check_oicr_non_armonizzati(df: pd.DataFrame,
                                 limite_pct: float = 30.0) -> CheckResult:
     col_ft = _col(df, "fund_type")
-    col_val = _col(df, "valore_mercato", "valore_bilancio")
+    col_val = _col(df, "valore_bilancio")
     tot = _totale(df)
 
     if not col_ft or col_val is None or tot == 0:
@@ -529,7 +529,7 @@ def check_singolo_ucits(df: pd.DataFrame,
                          limite_pct: float = 25.0) -> list[CheckResult]:
     col_ft = _col(df, "fund_type")
     col_isin = _col(df, "isin", "denominazione_strumento")
-    col_val = _col(df, "valore_mercato", "valore_bilancio")
+    col_val = _col(df, "valore_bilancio")
     tot = _totale(df)
 
     if not col_ft or not col_isin or col_val is None or tot == 0:
@@ -601,7 +601,7 @@ def check_singolo_aif(df: pd.DataFrame,
                        limite_pct: float = 10.0) -> list[CheckResult]:
     col_ft = _col(df, "fund_type")
     col_isin = _col(df, "isin", "denominazione_strumento")
-    col_val = _col(df, "valore_mercato", "valore_bilancio")
+    col_val = _col(df, "valore_bilancio")
     tot = _totale(df)
 
     if not col_ft or not col_isin or col_val is None or tot == 0:
@@ -668,8 +668,8 @@ def check_singolo_aif(df: pd.DataFrame,
 
 def check_regolamento(df: pd.DataFrame,
                        limiti: list[dict]) -> list[CheckResult]:
-    col_val = _col(df, "valore_mercato", "valore_bilancio")
-    col_class = _col(df, "security_class", "valuation_class")
+    col_val = _col(df, "valore_bilancio")
+    col_class = _col(df, "security_class")
     tot = _totale(df)
     results = []
 
