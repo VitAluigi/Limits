@@ -10,8 +10,6 @@ from dataclasses import dataclass
 # Costanti regolamentari (Sezione 3 Circolare 474/D)
 # ---------------------------------------------------------------------------
 
-# OICR: tutti i fondi comuni/sicav. Usato per filtrare i check 474_AIF/UCITS
-# in modo che bond/azioni con fund_type mal popolato non vengano contati come OICR.
 OICR_CLASSES = {
     "Money market fund", "Real Estate fund", "Fixed Income fund",
     "Mixed fund", "Hedge fund", "Equity fund",
@@ -52,9 +50,6 @@ RATING_MIN_474 = set(RATING_ORDER_SP[:RATING_ORDER_SP.index("BB") + 1])
 # ---------------------------------------------------------------------------
 # Mappa settore → keywords su Issuer Industry Name (per azionario settoriale)
 # ---------------------------------------------------------------------------
-# Chiave = sottostringa del nome categoria nel regolamento (es. "tecnolog")
-# Valore = lista di pattern (lowercase) da cercare in issuer_industry
-
 SECTOR_INDUSTRY_MAP: dict[str, list[str]] = {
     "tecnolog": [
         "computer", "software", "semiconductor", "electronic component",
@@ -180,7 +175,7 @@ class CheckResult:
     articolo: str = ""
 
 # ---------------------------------------------------------------------------
-# CHECK 1 — Vendite allo scoperto
+# CHECK 1 - Vendite allo scoperto
 # ---------------------------------------------------------------------------
 
 def check_short_selling(df: pd.DataFrame) -> CheckResult:
@@ -210,11 +205,11 @@ def check_short_selling(df: pd.DataFrame) -> CheckResult:
     )
 
 # ---------------------------------------------------------------------------
-# CHECK 2 — Divieto commodities
+# CHECK 2 - Divieto commodities
 # ---------------------------------------------------------------------------
 
 def check_commodities(df: pd.DataFrame) -> CheckResult:
-    COMMOD_KEYWORDS = ["commodity", "commodit", "merci", "materie prime"]
+    COMMOD_KEYWORDS = ["commodity fund", "commodity", "commodit", "merci", "materie prime"]
     col = _col(df, "security_class")
     col_val = _col(df, "valore_bilancio")
     tot = _totale(df)
@@ -236,7 +231,7 @@ def check_commodities(df: pd.DataFrame) -> CheckResult:
                        0.0, None, commod_pct, esito, sc, det, "Par.2 Circ. 474/D")
 
 # ---------------------------------------------------------------------------
-# CHECK 3 — Strumenti monetari ≤ 20%
+# CHECK 3 - Strumenti monetari ≤ 20%
 # ---------------------------------------------------------------------------
 
 def check_monetari(df: pd.DataFrame) -> CheckResult:
@@ -268,7 +263,7 @@ def check_monetari(df: pd.DataFrame) -> CheckResult:
                        LIMITE, None, pct, esito, sc, det, "Par.2 Circ. 474/D")
 
 # ---------------------------------------------------------------------------
-# CHECK 4 — Titoli non quotati
+# CHECK 4 - Titoli non quotati
 # ---------------------------------------------------------------------------
 
 def check_non_quotati(df: pd.DataFrame,
@@ -309,7 +304,7 @@ def check_non_quotati(df: pd.DataFrame,
                        limite_pct, None, pct, esito, sc, det, "Par.2 Circ. 474/D")
 
 # ---------------------------------------------------------------------------
-# CHECK 5 — Rating minimo BB
+# CHECK 5 - Rating minimo BB
 # ---------------------------------------------------------------------------
 
 def check_rating_minimo(df: pd.DataFrame, limite_pct: float = 5.0) -> CheckResult:
@@ -345,7 +340,7 @@ def check_rating_minimo(df: pd.DataFrame, limite_pct: float = 5.0) -> CheckResul
                        limite_pct, None, pct, esito, sc, det, "Par.1 Circ. 474/D")
 
 # ---------------------------------------------------------------------------
-# CHECK 6 — Concentrazione emittente ≤ 10%
+# CHECK 6 - Concentrazione emittente ≤ 10%
 # ---------------------------------------------------------------------------
 
 def check_concentrazione_emittente(df: pd.DataFrame,
@@ -396,7 +391,7 @@ def check_concentrazione_emittente(df: pd.DataFrame,
     return results
 
 # ---------------------------------------------------------------------------
-# CHECK 7 — Concentrazione gruppo ≤ 30%
+# CHECK 7 - Concentrazione gruppo ≤ 30%
 # ---------------------------------------------------------------------------
 
 def check_concentrazione_gruppo(df: pd.DataFrame,
@@ -440,7 +435,7 @@ def check_concentrazione_gruppo(df: pd.DataFrame,
     return results
 
 # ---------------------------------------------------------------------------
-# CHECK 8 — OICR non armonizzati (AIF) ≤ 30%
+# CHECK 8 - OICR non armonizzati (AIF) ≤ 30%
 # ---------------------------------------------------------------------------
 
 def check_oicr_non_armonizzati(df: pd.DataFrame,
@@ -476,7 +471,7 @@ def check_oicr_non_armonizzati(df: pd.DataFrame,
                        limite_pct, None, pct, esito, sc, det, "Par.2 Circ. 474/D")
 
 # ---------------------------------------------------------------------------
-# CHECK 9 — Singolo OICR UCITS ≤ 25%
+# CHECK 9 - Singolo OICR UCITS ≤ 25%
 # ---------------------------------------------------------------------------
 
 def check_singolo_ucits(df: pd.DataFrame,
@@ -527,7 +522,7 @@ def check_singolo_ucits(df: pd.DataFrame,
     return results
 
 # ---------------------------------------------------------------------------
-# CHECK 10 — Singolo OICR AIF ≤ 10%
+# CHECK 10 - Singolo OICR AIF ≤ 10%
 # ---------------------------------------------------------------------------
 
 def check_singolo_aif(df: pd.DataFrame,
@@ -577,25 +572,22 @@ def check_singolo_aif(df: pd.DataFrame,
     return results
 
 # ---------------------------------------------------------------------------
-# CHECK REGOLAMENTO — limiti estratti dal regolamento del fondo
+# CHECK REGOLAMENTO - limiti estratti dal regolamento del fondo
 # ---------------------------------------------------------------------------
 
 def check_regolamento(df: pd.DataFrame,
                        limiti: list[dict]) -> list[CheckResult]:
-    col_val   = _col(df, "valore_bilancio")
+    col_val = _col(df, "valore_bilancio")
     col_class = _col(df, "security_class")
     col_ptype = _col(df, "product_type")
-    col_ind   = _col(df, "issuer_industry")   # Issuer Industry Name (opzionale)
+    col_ind = _col(df, "issuer_industry")   # Issuer Industry Name (opzionale)
     tot = _totale(df)
     results = []
 
     if col_val is None or tot == 0:
         return results
 
-    # ── MACRO_MAP ─────────────────────────────────────────────────────────
-    # Struttura: (chiave_substring, security_classes, sector_key | None)
-    # sector_key → chiave in SECTOR_INDUSTRY_MAP per filtro settoriale su issuer_industry.
-    # Chiavi ordinate dalla più specifica (lunga) alla più generica.
+    # -- MACRO_MAP ---------------------------------------------------------
     _OBB = {
         "Govt bonds <1 year", "Govt bonds >1 year <10 years", "Govt bonds >10 years",
         "Separated Trading of Registered Interest and Principal (STRI",
@@ -607,39 +599,36 @@ def check_regolamento(df: pd.DataFrame,
     _AZ = {"Share", "Real Estate Shares", "Private Equities", "Equity fund"}
 
     MACRO_MAP: list[tuple[str, set[str], str | None]] = [
-        # — settoriali prima (più specifiche) —
-        ("azionario tecnolog",  _AZ,  "tecnolog"),
-        ("azionario sanitari",  _AZ,  "sanitari"),
-        ("azionario farmaceut", _AZ,  "farmaceut"),
-        ("azionario finanziar", _AZ,  "finanzi"),
-        ("azionario assicurat", _AZ,  "assicurat"),
-        ("azionario energeti",  _AZ,  "energeti"),
-        ("azionario immobiliar",_AZ,  "immobiliar"),
-        ("azionario industri",  _AZ,  "industri"),
-        ("azionario consumo",   _AZ,  "consumo"),
-        ("azionario emergent",  _AZ,  "emergent"),
-        ("azionario global",    _AZ,  "global"),
-        # — altri strumenti —
-        ("altri strumenti",     {"Fixed Income fund","Private equity fund","Mixed fund",
-                                 "Hedge fund","Real Estate fund","Equity fund",
-                                 "Money market fund"},                          None),
-        ("obbligazionari",      _OBB,                                           None),
-        ("infrastruttu",        {"Infra Bonds"},                                None),
-        ("immobiliar",          {"Real Estate fund","Real Estate Shares"},       None),
-        ("flessibil",           {"Mixed fund","Fixed Income fund"},              None),
-        ("bilancia",            {"Mixed fund"},                                  None),
-        # Monetario = OICR monetari (MMF), NON include Cash
-        ("monetari",            {"Money market fund"},                           None),
-        ("prestiti",            {"Loan"},                                        None),
-        # Disponibilità liquide = Cash puro (catturato via product_type)
-        ("liquid",              set(),                                           None),
-        # Azionario generico (senza settore) — dopo tutti i settoriali
-        ("azionari",            _AZ,                                             None),
-        ("fondi",               {"Fixed Income fund","Mixed fund","Hedge fund",
-                                 "Equity fund","Real Estate fund","Money market fund"}, None),
+        # - settoriali prima (più specifiche) -
+        ("azionario tecnolog", _AZ, "tecnolog"),
+        ("azionario sanitari", _AZ, "sanitari"),
+        ("azionario farmaceut", _AZ, "farmaceut"),
+        ("azionario finanziar", _AZ, "finanzi"),
+        ("azionario assicurat", _AZ, "assicurat"),
+        ("azionario energeti", _AZ, "energeti"),
+        ("azionario immobiliar",_AZ, "immobiliar"),
+        ("azionario industri", _AZ, "industri"),
+        ("azionario consumo", _AZ, "consumo"),
+        ("azionario emergent", _AZ, "emergent"),
+        ("azionario global", _AZ, "global"),
+        # - altri strumenti -
+        ("altri strumenti", {"Fixed Income fund","Private equity fund","Mixed fund",
+                             "Hedge fund","Real Estate fund","Equity fund",
+                             "Money market fund"}, None),
+        ("obbligazionari", _OBB, None),
+        ("infrastruttu", {"Infra Bonds"}, None),
+        ("immobiliar", {"Real Estate fund","Real Estate Shares"}, None),
+        ("flessibil", {"Mixed fund","Fixed Income fund"}, None),
+        ("bilancia", {"Mixed fund"}, None),
+        ("monetari", {"Money market fund"}, None),
+        ("prestiti", {"Loan"}, None),
+        ("liquid", set(), None),
+        ("azionari", _AZ, None),
+        ("fondi", {"Fixed Income fund","Mixed fund","Hedge fund",
+                   "Equity fund","Real Estate fund","Money market fund"}, None),
     ]
 
-    _INCLUDE_CASH_PT = {"liquid"}  # solo "liquid" cattura Cash via product_type
+    _INCLUDE_CASH_PT = {"liquid"}
 
     def _match(cat_str: str) -> tuple[set[str], bool, str | None]:
         """Restituisce (security_classes, include_cash, sector_key)."""
@@ -647,16 +636,16 @@ def check_regolamento(df: pd.DataFrame,
         for macro, sc_set, sector_key in MACRO_MAP:
             if macro in cat_lower:
                 return sc_set, (macro in _INCLUDE_CASH_PT), sector_key
-        return {cat_str}, False, None  # fallback letterale
+        return {cat_str}, False, None
 
     excl_calc = df.get("escluso_calcolo", pd.Series(False, index=df.index))
 
     for lim in limiti:
-        cat      = lim.get("categoria_asset", "")
-        lim_max  = lim.get("limite_max_pct")
-        lim_min  = lim.get("limite_min_pct")
+        cat = lim.get("categoria_asset", "")
+        lim_max = lim.get("limite_max_pct")
+        lim_min = lim.get("limite_min_pct")
         lim_emit = lim.get("limite_emittente_pct")
-        sezione  = lim.get("sezione", lim.get("articolo", ""))
+        sezione = lim.get("sezione", lim.get("articolo", ""))
 
         sc_set, include_cash, sector_key = _match(cat)
 
@@ -682,7 +671,7 @@ def check_regolamento(df: pd.DataFrame,
                 industry_note = f" [filtro settore: {sector_key}]"
         elif sector_key and not col_ind:
             # Colonna industry assente: avvisa ma non blocca
-            industry_note = " [⚠ issuer_industry non disponibile: valore approssimato]"
+            industry_note = " [issuer_industry non disponibile: valore approssimato]"
 
         # Escludi posizioni fuori denominatore
         mask &= ~excl_calc
