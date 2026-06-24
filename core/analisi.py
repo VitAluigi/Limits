@@ -685,14 +685,19 @@ def check_regolamento(df: pd.DataFrame, limiti: list[dict],
     if col_val is None:
         return results
 
+    # Categorie obbligazionarie: include sia i titoli di debito DIRETTI sia gli
+    # OICR obbligazionari ("Fixed Income fund"), perché molti fondi UL espongono
+    # il rischio tasso/credito esclusivamente via OICR (portafogli "fondi di fondi").
     _OBB = {
         "Govt bonds <1 year", "Govt bonds >1 year <10 years", "Govt bonds >10 years",
         "Separated Trading of Registered Interest and Principal (STRI",
         "Ordinary bond", "Subordinated bond", "Perpetual Notes", "Credit linked note",
         "Infra Bonds", "Infra Loans", "Index Linked Bonds",
         "Mortgage Backed Security", "Asset Backed Security",
-        "Collateralized Debt Obligation (CDO)", "Loan", "Fixed Income Fund",
+        "Collateralized Debt Obligation (CDO)", "Loan",
+        "Fixed Income fund",
     }
+    # Categorie azionarie: azioni dirette + OICR azionari ("Equity fund").
     _AZ = {"Share", "Real Estate Shares", "Private Equities", "Equity fund"}
 
     MACRO_MAP: list[tuple[str, set[str], str | None]] = [
