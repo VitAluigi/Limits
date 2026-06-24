@@ -217,50 +217,70 @@ if st.session_state.df_ship is not None:
     if nome_fondo in ("(tutti)", ""):
         nome_fondo = "Fondo"
 
-    # -- Basi di calcolo dal rendiconto ---------------------------------------
-    basi = Basi()
+    # -- Basi di calcolo (rendiconto + inserimento/override manuale) ----------
+    st.markdown("### Basi di calcolo")
+
     rend = st.session_state.rendiconto or {}
+    info_rend = match_fondo(nome_fondo, rend) if rend else None
 
-    if rend:
-        nomi_rend = list(rend.keys())
-        auto_match = match_fondo(nome_fondo, rend)
-        # default = fondo abbinato in automatico (se trovato), altrimenti "(automatico)"
-        opzioni = ["(automatico)"] + nomi_rend
-        default_idx = (nomi_rend.index(auto_match["nome_fondo"]) + 1) if auto_match else 0
+    # Valori suggeriti: dal rendiconto se abbinato, altrimenti dal totale SHIP
+    sugg_tot = float(info_rend["totale_attivita"]) if info_rend else float(tot_kpi or 0.0)
+    sugg_nav = float(info_rend["nav"]) if info_rend and info_rend.get("nav") else 0.0
 
-        st.markdown("### Fondo del rendiconto (basi di calcolo)")
-        sel_rend = st.selectbox(
-            "Seleziona il fondo del rendiconto da usare come base "
-            "(«(automatico)» = abbinamento al fondo selezionato nel SHIP):",
-            opzioni, index=default_idx, key="sel_fondo_rend",
-        )
-
-        if sel_rend == "(automatico)":
-            info_rend = auto_match
-        else:
-            info_rend = rend.get(sel_rend)
-    else:
-        info_rend = None
+    # Inizializza i campi manuali (una sola volta) con i valori suggeriti
+    if "man_tot" not in st.session_state or st.session_state.man_tot is None:
+        st.session_state.man_tot = sugg_tot
+    if "man_nav" not in st.session_state or st.session_state.man_nav is None:
+        st.session_state.man_nav = sugg_nav
 
     if info_rend:
-        basi = Basi(totale_attivita=info_rend["totale_attivita"],
-                    nav=info_rend["nav"])
-        b1, b2 = st.columns(2)
-        b1.metric("Totale attività (rendiconto)", f"€ {basi.totale_attivita:,.0f}")
-        b2.metric("NAV (rendiconto)", f"€ {basi.nav:,.0f}")
         st.caption(
-            f"Basi agganciate al rendiconto di **{info_rend['nome_fondo']}** "
-            f"({info_rend['data']}). I check 474 useranno Totale attività o NAV "
-            f"secondo il limite; gli altri ripiegano sul totale SHIP."
+            f"Valori abbinati al rendiconto di **{info_rend['nome_fondo']}** "
+            f"({info_rend['data']}). Puoi sovrascriverli manualmente qui sotto."
         )
+        if st.button("↺ Reimposta dai valori del rendiconto", key="reset_basi"):
+            st.session_state.man_tot = sugg_tot
+            st.session_state.man_nav = sugg_nav
+            st.rerun()
     elif rend:
         st.warning(
-            f"Nessun fondo del rendiconto abbinato a «{nome_fondo}»: "
-            f"seleziona manualmente il fondo qui sopra, oppure i check useranno "
-            f"il totale SHIP come base."
+            f"Nessun fondo del rendiconto abbinato a «{nome_fondo}». "
+            f"Inserisci le basi manualmente qui sotto (oppure lascia 0 per usare il totale SHIP)."
         )
-    st.session_state.basi = basi
+    else:
+        st.caption(
+            "Nessun rendiconto caricato: inserisci manualmente Totale attività e NAV, "
+            "oppure lascia 0 per usare il totale SHIP come base."
+        )
 
+    bcol1, bcol2 = st.columns(2)
+    man_tot = bcol1.number_input(
+        "Totale attività (EUR) — base limiti '% del totale attività'",
+        min_value=0.0, step=1000.0, format="%.2f", key="man_tot",
+    )
+    man_nav = bcol2.number_input(
+        "NAV / valore complessivo netto (EUR) — base limiti '% del fondo'",
+        min_value=0.0, step=1000.0, format="%.2f", key="man_nav",
+    )
+
+    basi = Basi(
+        totale_attivita=man_tot if man_tot > 0 else None,
+        nav=man_nav if man_nav > 0 else None,
+    )
+
+    info_basi = []
+    info_basi.append(
+        f"Totale attività: € {man_tot:,.0f}" if man_tot > 0
+        else "Totale attività: _fallback totale SHIP_"
+    )
+    info_basi.append(
+        f"NAV: € {man_nav:,.0f}" if man_nav > 0
+        else "NAV: _fallback totale SHIP_"
+    )
+    st.caption(" · ".join(info_basi))
+
+    st.session_state.basi = basi
+    
     # -- Selezione fondo del regolamento (con opzione "(tutti)") --------------
     limiti_tutti = st.session_state.limiti_reg or []
     fondi_reg = _fondi_da_limiti(limiti_tutti)
