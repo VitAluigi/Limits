@@ -6,16 +6,18 @@ import streamlit as st
 import pandas as pd
 import sys
 import os
+import re
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from core.pdf_parser import extract_text_from_pdf
 from core.claude_extractor import estrai_limiti_regolamento, estrai_info_fondo
 from core.ship_parser import load_ship, get_fondi, filter_portafoglio
-from core.analisi import esegui_tutti_check, CheckResult
 from core.excel_writer import genera_excel
 from core.rendiconto_parser import parse_rendiconto, match_fondo
-from core.analisi import esegui_tutti_check, check_regolamento, CheckResult, Basi, BASE_LABEL
+from core.analisi import (
+    esegui_tutti_check, check_regolamento, CheckResult, Basi, BASE_LABEL,
+)
 
 # -- Page config --------------------------------------------------------------
 st.set_page_config(
@@ -51,9 +53,27 @@ st.markdown('<div class="sub-title">Circolare ISVAP 474/D - Regolamento fondo</d
 
 # -- Session state -------------------------------------------------------------
 for k in ["df_ship", "limiti_reg", "info_fondo", "results_474", "results_reg",
-          "excel_bytes", "nome_fondo"]:
+          "excel_bytes", "nome_fondo", "rendiconto", "basi"]:
     if k not in st.session_state:
         st.session_state[k] = None
+
+
+# -- Helper: nome fondo dal campo "sezione" ("Art. X - <Nome fondo>") ----------
+def _fondo_da_sezione(sezione: str) -> str:
+    s = str(sezione or "")
+    if " - " in s:
+        return s.split(" - ", 1)[1].strip()
+    return s.strip()
+
+
+def _fondi_da_limiti(limiti: list[dict]) -> list[str]:
+    fondi = []
+    for lim in limiti or []:
+        nome = _fondo_da_sezione(lim.get("sezione", lim.get("articolo", "")))
+        if nome and nome not in fondi:
+            fondi.append(nome)
+    return fondi
+
 
 # -- SIDEBAR -------------------------------------------------------------------
 with st.sidebar:
@@ -82,7 +102,7 @@ with st.sidebar:
     # 2. Portafoglio SHIP
     st.markdown("**Portafoglio del fondo** *(obbligatorio)*")
     ship_file = st.file_uploader("File Posizioni (.xlsx)", type=["xlsx", "xls"],
-                                  key="up_ship", label_visibility="collapsed")
+                                 key="up_ship", label_visibility="collapsed")
     if ship_file:
         if st.button("Carica portafoglio", use_container_width=True):
             with st.spinner("Parsing SHIP…"):
@@ -96,7 +116,7 @@ with st.sidebar:
 
     st.divider()
 
-    st.divider()
+    # 3. Rendiconto (basi di calcolo)
     st.markdown("**Rendiconto del fondo** *(opzionale, per le basi di calcolo)*")
     pdf_rend = st.file_uploader("PDF rendiconto (Allegato 1)", type=["pdf"],
                                 key="up_rend", label_visibility="collapsed")
@@ -104,15 +124,18 @@ with st.sidebar:
         with st.spinner("Parsing rendiconto…"):
             try:
                 st.session_state.rendiconto = parse_rendiconto(pdf_rend.read())
-                st.success(f"Estratti {len(st.session_state.rendiconto)} fondi dal rendiconto")
+                st.success(
+                    f"Estratti {len(st.session_state.rendiconto)} fondi dal rendiconto")
             except Exception as e:
                 st.error(f"Errore: {e}")
 
-    # 3. Parametri check 474
+    st.divider()
+
+    # 4. Parametri check 474
     st.markdown("**Parametri 474/D**")
     tipo_fondo = st.selectbox("Tipo fondo",
-                               ["non previdenziale", "previdenziale"],
-                               key="tipo_fondo")
+                              ["non previdenziale", "previdenziale"],
+                              key="tipo_fondo")
     limite_nq = 10.0 if tipo_fondo == "non previdenziale" else 25.0
     st.caption(f"Limite non quotati applicato: **{limite_nq}%**")
 
@@ -145,10 +168,10 @@ if st.session_state.df_ship is not None:
     st.markdown("### Seleziona fondo")
 
     FILTRI = [
-        ("tipo_area",               "Area valutazione"),
-        ("denominazione_impresa",   "Compagnia"),
+        ("tipo_area",                 "Area valutazione"),
+        ("denominazione_impresa",     "Compagnia"),
         ("denominazione_portafoglio", "Portafoglio"),
-        ("denominazione_fondo",     "Fondo (SAG)"),
+        ("denominazione_fondo",       "Fondo (SAG)"),
     ]
 
     col_f1, col_f2, col_f3, col_f4 = st.columns(4)
@@ -163,7 +186,7 @@ if st.session_state.df_ship is not None:
         if not valori:
             continue
         sel = filter_cols[i].selectbox(label, ["(tutti)"] + valori,
-                                        key=f"f_{col_name}")
+                                       key=f"f_{col_name}")
         selezioni[col_name] = sel
         if sel != "(tutti)":
             df_work = df_work[df_work[col_name].astype(str) == sel]
@@ -194,30 +217,39 @@ if st.session_state.df_ship is not None:
     if nome_fondo in ("(tutti)", ""):
         nome_fondo = "Fondo"
 
-    # -- Basi di calcolo dal rendiconto -------------------------------------
+    # -- Basi di calcolo dal rendiconto ---------------------------------------
     basi = Basi()
     rend = st.session_state.rendiconto or {}
     info_rend = match_fondo(nome_fondo, rend) if rend else None
     if info_rend:
-        basi = Basi(totale_attivita=info_rend["totale_attivita"], nav=info_rend["nav"])
+        basi = Basi(totale_attivita=info_rend["totale_attivita"],
+                    nav=info_rend["nav"])
         b1, b2 = st.columns(2)
         b1.metric("Totale attività (rendiconto)", f"€ {basi.totale_attivita:,.0f}")
         b2.metric("NAV (rendiconto)", f"€ {basi.nav:,.0f}")
-        st.caption(f"Basi agganciate al rendiconto di **{info_rend['nome_fondo']}** "
-                   f"({info_rend['data']}). I check 474 useranno Totale attività o NAV "
-                   f"secondo il limite; gli altri ripiegano sul totale SHIP.")
+        st.caption(
+            f"Basi agganciate al rendiconto di **{info_rend['nome_fondo']}** "
+            f"({info_rend['data']}). I check 474 useranno Totale attività o NAV "
+            f"secondo il limite; gli altri ripiegano sul totale SHIP."
+        )
     elif rend:
-        st.warning(f"Nessun fondo del rendiconto abbinato a «{nome_fondo}»: "
-                   f"i check useranno il totale SHIP come base.")
+        st.warning(
+            f"Nessun fondo del rendiconto abbinato a «{nome_fondo}»: "
+            f"i check useranno il totale SHIP come base."
+        )
     st.session_state.basi = basi
 
-    # -- Selezione fondo del regolamento (se PDF con più fondi) ------------------
+    # -- Selezione fondo del regolamento (con opzione "(tutti)") --------------
     limiti_tutti = st.session_state.limiti_reg or []
-    fondi_reg_options = ["(tutti)"] + (fondi_reg if fondi_reg else [])
+    fondi_reg = _fondi_da_limiti(limiti_tutti)
+    fondo_reg_sel = "(tutti)"
+
+    if limiti_tutti:
+        fondi_reg_options = ["(tutti)"] + fondi_reg
         st.markdown("### Fondo del regolamento da verificare")
         fondo_reg_sel = st.selectbox(
-            "Il regolamento può contenere limiti per più fondi. Seleziona quello da applicare "
-            "(oppure «(tutti)» per verificarli tutti):",
+            "Il regolamento può contenere limiti per più fondi. Seleziona quello da "
+            "applicare (oppure «(tutti)» per verificarli tutti):",
             fondi_reg_options, key="sel_fondo_reg",
         )
         if fondo_reg_sel == "(tutti)":
@@ -225,12 +257,11 @@ if st.session_state.df_ship is not None:
         else:
             n_filtrati = sum(
                 1 for lim in limiti_tutti
-                if _fondo_da_sezione(lim.get("sezione", lim.get("articolo", ""))) == fondo_reg_sel)
+                if _fondo_da_sezione(lim.get("sezione", lim.get("articolo", ""))) == fondo_reg_sel
+            )
             st.caption(f"Verranno applicati **{n_filtrati}** limiti di *{fondo_reg_sel}*")
-        else:
-            fondo_reg_sel = fondi_reg_options[0] if fondi_reg_options else None
 
-    # -- Esegui check --------------------------------------------------------
+    # -- Esegui check ---------------------------------------------------------
     st.markdown("### Esegui verifica")
 
     if len(df_sel) == 0:
@@ -239,7 +270,7 @@ if st.session_state.df_ship is not None:
         if st.button("ESEGUI VERIFICA", type="primary", use_container_width=False):
             with st.spinner("Calcolo check 474 e regolamento…"):
                 try:
-                    # Filtra i limiti al solo fondo del regolamento selezionato
+                    # Filtra i limiti al fondo del regolamento selezionato
                     limiti_r_all = st.session_state.limiti_reg or []
                     if fondo_reg_sel and fondo_reg_sel != "(tutti)":
                         limiti_r = [
@@ -250,21 +281,23 @@ if st.session_state.df_ship is not None:
                         ]
                     else:
                         limiti_r = limiti_r_all
+
                     info_f = st.session_state.info_fondo or {}
+                    basi = st.session_state.basi or Basi()
 
                     results_474 = esegui_tutti_check(
                         df_sel,
                         limiti_regolamento=None,
                         limite_non_quotati=limite_nq,
                         tipo_fondo=tipo_fondo,
+                        basi=basi,
                     )
 
-                    from core.analisi import check_regolamento
-                    results_reg = check_regolamento(df_sel, limiti_r) if limiti_r else []
+                    results_reg = check_regolamento(df_sel, limiti_r, basi) if limiti_r else []
 
                     st.session_state.results_474 = results_474
                     st.session_state.results_reg = results_reg
-                    st.session_state.nome_fondo  = nome_fondo
+                    st.session_state.nome_fondo = nome_fondo
 
                     excel_b = genera_excel(
                         df_portafoglio=df_sel,
@@ -286,10 +319,10 @@ if st.session_state.df_ship is not None:
         results_reg: list[CheckResult] = st.session_state.results_reg or []
 
         def _esiti_count(rs):
-            ok   = sum(1 for r in rs if r.esito == "OK")
-            err  = sum(1 for r in rs if "SFORA" in r.esito)
+            ok = sum(1 for r in rs if r.esito == "OK")
+            err = sum(1 for r in rs if "SFORA" in r.esito)
             warn = sum(1 for r in rs if "MINIMO" in r.esito or "AVVISO" in r.esito)
-            nr   = sum(1 for r in rs if r.esito == "NON RILEVABILE")
+            nr = sum(1 for r in rs if r.esito == "NON RILEVABILE")
             return ok, err, warn, nr
 
         ok4, e4, w4, nr4 = _esiti_count(results_474)
@@ -318,6 +351,7 @@ if st.session_state.df_ship is not None:
                 "Descrizione": r.descrizione,
                 "Limite MAX %": r.limite_max_pct,
                 "Valore %": r.valore_effettivo_pct,
+                "Base": BASE_LABEL.get(r.base_calcolo, r.base_calcolo),
                 "Esito": r.esito,
                 "Scost. pp": r.scostamento_pp,
                 "Dettaglio": r.dettaglio[:80] + "…" if len(r.dettaglio) > 80 else r.dettaglio,
@@ -345,6 +379,7 @@ if st.session_state.df_ship is not None:
                     "Limite MAX %": r.limite_max_pct,
                     "Limite MIN %": r.limite_min_pct,
                     "Valore %": r.valore_effettivo_pct,
+                    "Base": BASE_LABEL.get(r.base_calcolo, r.base_calcolo),
                     "Esito": r.esito,
                 })
             df_reg_show = pd.DataFrame(rows_reg)
@@ -356,7 +391,7 @@ if st.session_state.df_ship is not None:
     # -- Download Excel -------------------------------------------------------
     if st.session_state.excel_bytes:
         st.divider()
-        fname = f"Verifica_474_{st.session_state.nome_fondo.replace(' ','_')}.xlsx"
+        fname = f"Verifica_474_{st.session_state.nome_fondo.replace(' ', '_')}.xlsx"
         st.download_button(
             label="⬇ Scarica Excel verifica",
             data=st.session_state.excel_bytes,
