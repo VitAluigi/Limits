@@ -41,10 +41,12 @@ SHIP_COLS_MAP = {
     "Indicator: Listed on Exchange":       "listed",             # X = quotato, NaN = non quotato
 
     # Rating (fallback chain: S&P → Fitch → Moody's → IFRS9)
+    "IFRS9 Rating":                        "rating_ifrs9",
+    "Axa Rating":                          "axa_rating",
     "Rating Issue S&P":                    "rating_sp",
     "Rating Issue Fitch":                  "rating_fitch",
     "Rating Issue Moody's":               "rating_moodys",
-    "IFRS9 Rating":                        "rating_ifrs9",
+    
 
     # Emittente / Gruppo
     "Issuer Name":                         "denominazione_emittente",
