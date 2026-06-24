@@ -10,14 +10,15 @@ from dataclasses import dataclass, field
 # Costanti regolamentari (Sezione 3 Circolare 474/D)
 # ---------------------------------------------------------------------------
 
+# OICR: tutti i fondi comuni/sicav. Usato per filtrare i check 474_AIF/UCITS
+# in modo che bond/azioni con fund_type mal popolato non vengano contati come OICR.
 OICR_CLASSES = {
     "Money market fund", "Real Estate fund", "Fixed Income fund",
     "Mixed fund", "Hedge fund", "Equity fund",
+    "Private equity fund",   # PE fund = OICR alternativo
+    "Commodity fund",        # commodity fund = OICR (catturato anche da check_commodities)
 }
 
-MONETARI_CLASSES = {
-    "Money market fund",
-}
 MONETARI_PRODUCT_TYPES = {
     "Cash",
 }
@@ -25,15 +26,47 @@ MONETARI_SECURITY_CLASSES = {
     "Money market fund",
 }
 
+# Classi assimilate ad azionario: esenti dal check rating (Par.1 Circ. 474/D)
+# e incluse nel comparto azionario per il check regolamento.
 AZIONARIO_CLASSES = {
-    "Share", "Equity fund", "Real Estate Shares", "Private Equities",
-    "Hedge fund",   # fondi azionari/multi-asset: esenti dal check rating
+    "Share",
+    "Equity fund",
+    "Real Estate Shares",
+    "Private Equities",
+    "Private equity fund",   # PE fund investe in equity
+    "Hedge fund",            # multi-asset/azionario: esente check rating
 }
 
+# Product type da escludere dal DENOMINATORE (derivati OTC, repo, voci P&L).
+# Security Classification Name non contiene questa info -> si usa Product Type.
 ESCLUSI_PRODUCT_TYPES = {
-    "Repurchase Agreement", "Interest rate swap (IRS)", "FX Forward",
-    "Credit Default Swap (CDS)", "Securities  Forward",
-    "Other P/L Items", "Repo Collateral Margin Account",
+    # Repo / collateral
+    "Repurchase Agreement",
+    "Repo Collateral Margin Account",
+    # Derivati tassi
+    "Interest rate swap (IRS)",
+    "Cross-curr.int.rate swap (CCS)",
+    "Deposit Swap",
+    "Irregular Fix-to-Fix Swap",
+    "Asset Swap",
+    "Asset Swap (Spanish)",
+    "TRS Nominal",
+    "OTC Payer-Swaption (Put)",
+    "OTC Receiver-Swaption (Call)",
+    # Derivati valuta
+    "FX Forward",
+    "OTC Currency Option Call",
+    "OTC Currency Option Put",
+    # Derivati credito
+    "Credit Default Swap (CDS)",
+    # Derivati indice/equity
+    "OTC Index Option Put",
+    "OTC Index Option Call",
+    # OTC generici
+    "3rd party assets - OTCs",
+    "Securities  Forward",
+    # Voci P&L / tecnici
+    "Other P/L Items",
 }
 
 RATING_ORDER_SP = [
@@ -648,10 +681,19 @@ def check_regolamento(df: pd.DataFrame,
     # substring (chiave IN cat_lower), quindi le chiavi più lunghe devono
     # stare prima per evitare che "azionari" catturi "azionario tecnologico".
     _OBB = {
+        # Titoli di Stato
         "Govt bonds <1 year", "Govt bonds >1 year <10 years", "Govt bonds >10 years",
-        "Ordinary bond", "Subordinated bond", "Infra Bonds", "Index Linked Bonds",
-        "Mortgage Backed Security", "Asset Backed Security", "Perpetual Notes",
-        "Credit linked note", "Loan",   # Loan = strumento di debito
+        # Titoli STRIPS (Separated Trading of Registered Interest and Principal)
+        "Separated Trading of Registered Interest and Principal (STRI",
+        # Obbligazioni corporate
+        "Ordinary bond", "Subordinated bond", "Perpetual Notes", "Credit linked note",
+        # Obbligazioni strutturate / cartolarizzazioni
+        "Infra Bonds", "Infra Loans",   # infrastrutture
+        "Index Linked Bonds",
+        "Mortgage Backed Security", "Asset Backed Security",
+        "Collateralized Debt Obligation (CDO)",
+        # Prestiti e crediti
+        "Loan",
     }
     _AZ = {
         "Share", "Real Estate Shares", "Private Equities", "Equity fund",
@@ -666,17 +708,20 @@ def check_regolamento(df: pd.DataFrame,
         ("immobiliar",         {"Real Estate fund","Real Estate Shares"}),
         ("flessibil",          {"Mixed fund","Fixed Income fund"}),  # "Flessibile"
         ("bilancia",           {"Mixed fund"}),            # "Bilanciato"
-        ("monetari",           {"Money market fund"}),     # "Monetario" / "Monetari"
-        ("prestiti",           {"Loan"}),                  # "Prestiti"
-        ("liquid",             {"Money market fund"}),     # "Liquidità" / "Disponibilità liquide"
+        # "Monetario" = OICR monetari (Money Market Fund) — NON include Cash
+        ("monetari",           {"Money market fund"}),
+        ("prestiti",           {"Loan"}),
+        # "Disponibilità liquide" = cassa pura (Cash product_type).
+        # Set vuoto: cattura solo via product_type=Cash, NON include Money market fund.
+        ("liquid",             set()),
         ("azionari",           _AZ),
         ("fondi",              {"Fixed Income fund","Mixed fund","Hedge fund",
                                 "Equity fund","Real Estate fund","Money market fund"}),
     ]
 
-    # Categorie regolamento che includono anche la liquidità Cash
-    # (product_type = "Cash", security_class = "Not assigned")
-    _INCLUDE_CASH_PT = {"monetari", "liquid"}
+    # Solo "liquid" cattura Cash via product_type.
+    # "monetari" = solo OICR Money market fund, NON Cash.
+    _INCLUDE_CASH_PT = {"liquid"}
 
     col_ptype = _col(df, "product_type")
 
