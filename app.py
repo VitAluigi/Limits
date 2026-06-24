@@ -14,6 +14,8 @@ from core.claude_extractor import estrai_limiti_regolamento, estrai_info_fondo
 from core.ship_parser import load_ship, get_fondi, filter_portafoglio
 from core.analisi import esegui_tutti_check, CheckResult
 from core.excel_writer import genera_excel
+from core.rendiconto_parser import parse_rendiconto, match_fondo
+from core.analisi import esegui_tutti_check, check_regolamento, CheckResult, Basi, BASE_LABEL
 
 # -- Page config --------------------------------------------------------------
 st.set_page_config(
@@ -93,6 +95,18 @@ with st.sidebar:
                     st.error(f"Errore: {e}")
 
     st.divider()
+
+    st.divider()
+    st.markdown("**Rendiconto del fondo** *(opzionale, per le basi di calcolo)*")
+    pdf_rend = st.file_uploader("PDF rendiconto (Allegato 1)", type=["pdf"],
+                                key="up_rend", label_visibility="collapsed")
+    if pdf_rend and st.button("Estrai basi dal rendiconto", use_container_width=True):
+        with st.spinner("Parsing rendiconto…"):
+            try:
+                st.session_state.rendiconto = parse_rendiconto(pdf_rend.read())
+                st.success(f"Estratti {len(st.session_state.rendiconto)} fondi dal rendiconto")
+            except Exception as e:
+                st.error(f"Errore: {e}")
 
     # 3. Parametri check 474
     st.markdown("**Parametri 474/D**")
@@ -180,31 +194,38 @@ if st.session_state.df_ship is not None:
     if nome_fondo in ("(tutti)", ""):
         nome_fondo = "Fondo"
 
+    # -- Basi di calcolo dal rendiconto -------------------------------------
+    basi = Basi()
+    rend = st.session_state.rendiconto or {}
+    info_rend = match_fondo(nome_fondo, rend) if rend else None
+    if info_rend:
+        basi = Basi(totale_attivita=info_rend["totale_attivita"], nav=info_rend["nav"])
+        b1, b2 = st.columns(2)
+        b1.metric("Totale attività (rendiconto)", f"€ {basi.totale_attivita:,.0f}")
+        b2.metric("NAV (rendiconto)", f"€ {basi.nav:,.0f}")
+        st.caption(f"Basi agganciate al rendiconto di **{info_rend['nome_fondo']}** "
+                   f"({info_rend['data']}). I check 474 useranno Totale attività o NAV "
+                   f"secondo il limite; gli altri ripiegano sul totale SHIP.")
+    elif rend:
+        st.warning(f"Nessun fondo del rendiconto abbinato a «{nome_fondo}»: "
+                   f"i check useranno il totale SHIP come base.")
+    st.session_state.basi = basi
+
     # -- Selezione fondo del regolamento (se PDF con più fondi) ------------------
     limiti_tutti = st.session_state.limiti_reg or []
-    fondo_reg_sel = None
-    if limiti_tutti:
-        def _fondo_da_sezione(s: str) -> str:
-            parts = str(s).rsplit(" - ", 1)
-            return parts[-1].strip() if len(parts) > 1 else "(tutti)"
-
-        fondi_reg = sorted(set(
-            _fondo_da_sezione(lim.get("sezione", lim.get("articolo", "")))
-            for lim in limiti_tutti
-        ))
-        fondi_reg_options = fondi_reg if fondi_reg else ["(tutti)"]
-
-        if len(fondi_reg_options) > 1:
-            st.markdown("### Fondo del regolamento da verificare")
-            fondo_reg_sel = st.selectbox(
-                "Il regolamento contiene limiti per più fondi interni. Seleziona quello da applicare:",
-                fondi_reg_options,
-                key="sel_fondo_reg",
-            )
+    fondi_reg_options = ["(tutti)"] + (fondi_reg if fondi_reg else [])
+        st.markdown("### Fondo del regolamento da verificare")
+        fondo_reg_sel = st.selectbox(
+            "Il regolamento può contenere limiti per più fondi. Seleziona quello da applicare "
+            "(oppure «(tutti)» per verificarli tutti):",
+            fondi_reg_options, key="sel_fondo_reg",
+        )
+        if fondo_reg_sel == "(tutti)":
+            st.caption(f"Verranno applicati **tutti** i {len(limiti_tutti)} limiti estratti.")
+        else:
             n_filtrati = sum(
                 1 for lim in limiti_tutti
-                if _fondo_da_sezione(lim.get("sezione", lim.get("articolo", ""))) == fondo_reg_sel
-            )
+                if _fondo_da_sezione(lim.get("sezione", lim.get("articolo", ""))) == fondo_reg_sel)
             st.caption(f"Verranno applicati **{n_filtrati}** limiti di *{fondo_reg_sel}*")
         else:
             fondo_reg_sel = fondi_reg_options[0] if fondi_reg_options else None
