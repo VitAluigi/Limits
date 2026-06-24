@@ -691,7 +691,7 @@ def check_regolamento(df: pd.DataFrame, limiti: list[dict],
         "Ordinary bond", "Subordinated bond", "Perpetual Notes", "Credit linked note",
         "Infra Bonds", "Infra Loans", "Index Linked Bonds",
         "Mortgage Backed Security", "Asset Backed Security",
-        "Collateralized Debt Obligation (CDO)", "Loan",
+        "Collateralized Debt Obligation (CDO)", "Loan", "Fixed Income Fund",
     }
     _AZ = {"Share", "Real Estate Shares", "Private Equities", "Equity fund"}
 
