@@ -244,7 +244,7 @@ df_sel = df_work.reset_index(drop=True)
             
 
     # -- Esegui check --------------------------------------------------------
-    st.markdown("### Esegui verifica")
+st.markdown("### Esegui verifica")
 
     if len(df_sel) == 0:
         st.warning("Nessuna posizione nel perimetro selezionato.")
