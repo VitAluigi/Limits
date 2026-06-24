@@ -350,7 +350,7 @@ if st.session_state.df_ship is not None:
             ("Dettaglio_Emittenti", "Concentrazione per singolo emittente (con soglia colore)"),
             ("Dettaglio_Gruppi", "Concentrazione per gruppo emittente"),
             ("DB_Grezzo", "Portafoglio SHIP filtrato"),
-            ("Limiti_Regolamento_Raw", "Limiti estratti dal regolamento via Claude AI"),
+            ("Limiti_Regolamento_Raw", "Limiti estratti dal regolamento"),
             ("Legenda", "Legenda colori e note metodologiche"),
         ]
         for sheet, desc in sheets_info:
