@@ -182,13 +182,13 @@ if st.session_state.df_ship is not None:
 
     # -- Selezione fondo del regolamento (se PDF con più fondi) ------------------
     # -- Selezione fondo del regolamento ------------------
-    limiti_tutti = st.session_state.limiti_reg or []
-    fondo_reg_sel = "(tutti)"
+limiti_tutti = st.session_state.limiti_reg or []
+fondo_reg_sel = "(tutti)"
 
-    if limiti_tutti:
-        def _fondo_da_sezione(s: str) -> str:
-            parts = str(s).rsplit(" - ", 1)
-            return parts[-1].strip() if len(parts) > 1 else "(tutti)"
+if limiti_tutti:
+    def _fondo_da_sezione(s: str) -> str:
+        parts = str(s).rsplit(" - ", 1)
+        return parts[-1].strip() if len(parts) > 1 else "(tutti)"
 
     # estrai fondi unici
     fondi_reg = sorted(set(
@@ -220,27 +220,27 @@ if st.session_state.df_ship is not None:
     st.caption(f"Verranno applicati **{n_filtrati}** limiti di *{fondo_reg_sel}*")
 
 
-    # -- Filtri dataframe ------------------
-    for i, (col_name, label) in enumerate(FILTRI):
-        if col_name not in df_work.columns:
-            continue
-
-        valori = sorted(df_work[col_name].dropna().astype(str).unique().tolist())
-        if not valori:
+# -- Filtri dataframe ------------------
+for i, (col_name, label) in enumerate(FILTRI):
+    if col_name not in df_work.columns:
         continue
 
-        sel = filter_cols[i].selectbox(
-            label,
-            ["(tutti)"] + valori,
-            key=f"f_{col_name}"
-        )
+    valori = sorted(df_work[col_name].dropna().astype(str).unique().tolist())
+    if not valori:
+        continue
 
-        selezioni[col_name] = sel
+    sel = filter_cols[i].selectbox(
+        label,
+        ["(tutti)"] + valori,
+        key=f"f_{col_name}"
+    )
 
-        if sel != "(tutti)":
-            df_work = df_work[df_work[col_name].astype(str) == sel]
+    selezioni[col_name] = sel
 
-    df_sel = df_work.reset_index(drop=True)
+    if sel != "(tutti)":
+        df_work = df_work[df_work[col_name].astype(str) == sel]
+
+df_sel = df_work.reset_index(drop=True)
             
 
     # -- Esegui check --------------------------------------------------------
