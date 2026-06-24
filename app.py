@@ -66,15 +66,6 @@ def _fondo_da_sezione(sezione: str) -> str:
     return s.strip()
 
 
-def _fondi_da_limiti(limiti: list[dict]) -> list[str]:
-    fondi = []
-    for lim in limiti or []:
-        nome = _fondo_da_sezione(lim.get("sezione", lim.get("articolo", "")))
-        if nome and nome not in fondi:
-            fondi.append(nome)
-    return fondi
-
-
 # -- SIDEBAR -------------------------------------------------------------------
 with st.sidebar:
     st.markdown("### Caricamento file")
@@ -124,6 +115,10 @@ with st.sidebar:
         with st.spinner("Parsing rendiconto…"):
             try:
                 st.session_state.rendiconto = parse_rendiconto(pdf_rend.read())
+                # reset della selezione/basi per riallineare ai nuovi fondi estratti
+                st.session_state.pop("_last_fondo_rend", None)
+                st.session_state.pop("man_tot", None)
+                st.session_state.pop("man_nav", None)
                 st.success(
                     f"Estratti {len(st.session_state.rendiconto)} fondi dal rendiconto")
             except Exception as e:
@@ -217,35 +212,47 @@ if st.session_state.df_ship is not None:
     if nome_fondo in ("(tutti)", ""):
         nome_fondo = "Fondo"
 
-    # -- Basi di calcolo (rendiconto + inserimento/override manuale) ----------
+    # -- Basi di calcolo: selettore fondo del rendiconto + override manuale ---
     st.markdown("### Basi di calcolo")
 
     rend = st.session_state.rendiconto or {}
-    info_rend = match_fondo(nome_fondo, rend) if rend else None
 
-    # Valori suggeriti: dal rendiconto se abbinato, altrimenti dal totale SHIP
-    sugg_tot = float(info_rend["totale_attivita"]) if info_rend else float(tot_kpi or 0.0)
-    sugg_nav = float(info_rend["nav"]) if info_rend and info_rend.get("nav") else 0.0
+    # Inizializza i campi manuali una sola volta
+    if "man_tot" not in st.session_state:
+        st.session_state.man_tot = float(tot_kpi or 0.0)
+    if "man_nav" not in st.session_state:
+        st.session_state.man_nav = 0.0
 
-    # Inizializza i campi manuali (una sola volta) con i valori suggeriti
-    if "man_tot" not in st.session_state or st.session_state.man_tot is None:
-        st.session_state.man_tot = sugg_tot
-    if "man_nav" not in st.session_state or st.session_state.man_nav is None:
-        st.session_state.man_nav = sugg_nav
+    info_rend = None
+    if rend:
+        nomi_rend = list(rend.keys())
 
-    if info_rend:
-        st.caption(
-            f"Valori abbinati al rendiconto di **{info_rend['nome_fondo']}** "
-            f"({info_rend['data']}). Puoi sovrascriverli manualmente qui sotto."
+        # Default intelligente: match automatico col nome del fondo SHIP
+        auto = match_fondo(nome_fondo, rend)
+        default_idx = (nomi_rend.index(auto["nome_fondo"])
+                       if auto and auto["nome_fondo"] in nomi_rend else 0)
+
+        st.markdown("**Fondo del rendiconto** *(fornisce Totale attività e NAV)*")
+        fondo_rend_sel = st.selectbox(
+            "Seleziona il fondo del rendiconto a cui riferire le basi di calcolo:",
+            nomi_rend,
+            index=default_idx,
+            key="sel_fondo_rend",
         )
-        if st.button("↺ Reimposta dai valori del rendiconto", key="reset_basi"):
-            st.session_state.man_tot = sugg_tot
-            st.session_state.man_nav = sugg_nav
+        info_rend = rend.get(fondo_rend_sel)
+
+        # Al cambio di fondo, aggiorna automaticamente Totale attività e NAV
+        if st.session_state.get("_last_fondo_rend") != fondo_rend_sel:
+            st.session_state._last_fondo_rend = fondo_rend_sel
+            st.session_state.man_tot = float(info_rend.get("totale_attivita") or 0.0)
+            st.session_state.man_nav = float(info_rend.get("nav") or 0.0)
             st.rerun()
-    elif rend:
-        st.warning(
-            f"Nessun fondo del rendiconto abbinato a «{nome_fondo}». "
-            f"Inserisci le basi manualmente qui sotto (oppure lascia 0 per usare il totale SHIP)."
+
+        st.caption(
+            f"Fondo **{info_rend['nome_fondo']}** ({info_rend['data']}) - "
+            f"Totale attività € {info_rend['totale_attivita']:,.0f} · "
+            f"NAV € {(info_rend.get('nav') or 0):,.0f}. "
+            f"Puoi comunque sovrascrivere i valori qui sotto."
         )
     else:
         st.caption(
@@ -268,40 +275,22 @@ if st.session_state.df_ship is not None:
         nav=man_nav if man_nav > 0 else None,
     )
 
-    info_basi = []
-    info_basi.append(
-        f"Totale attività: € {man_tot:,.0f}" if man_tot > 0
-        else "Totale attività: _fallback totale SHIP_"
-    )
-    info_basi.append(
-        f"NAV: € {man_nav:,.0f}" if man_nav > 0
-        else "NAV: _fallback totale SHIP_"
-    )
+    info_basi = [
+        (f"Totale attività: € {man_tot:,.0f}" if man_tot > 0
+         else "Totale attività: _fallback totale SHIP_"),
+        (f"NAV: € {man_nav:,.0f}" if man_nav > 0
+         else "NAV: _fallback totale SHIP_"),
+    ]
     st.caption(" · ".join(info_basi))
 
     st.session_state.basi = basi
-    
-    # -- Selezione fondo del regolamento (con opzione "(tutti)") --------------
-    limiti_tutti = st.session_state.limiti_reg or []
-    fondi_reg = _fondi_da_limiti(limiti_tutti)
-    fondo_reg_sel = "(tutti)"
 
+    # -- Limiti regolamento: applicati tutti ----------------------------------
+    limiti_tutti = st.session_state.limiti_reg or []
     if limiti_tutti:
-        fondi_reg_options = ["(tutti)"] + fondi_reg
-        st.markdown("### Fondo del regolamento da verificare")
-        fondo_reg_sel = st.selectbox(
-            "Il regolamento può contenere limiti per più fondi. Seleziona quello da "
-            "applicare (oppure «(tutti)» per verificarli tutti):",
-            fondi_reg_options, key="sel_fondo_reg",
+        st.caption(
+            f"Regolamento: verranno applicati **tutti** i {len(limiti_tutti)} limiti estratti."
         )
-        if fondo_reg_sel == "(tutti)":
-            st.caption(f"Verranno applicati **tutti** i {len(limiti_tutti)} limiti estratti.")
-        else:
-            n_filtrati = sum(
-                1 for lim in limiti_tutti
-                if _fondo_da_sezione(lim.get("sezione", lim.get("articolo", ""))) == fondo_reg_sel
-            )
-            st.caption(f"Verranno applicati **{n_filtrati}** limiti di *{fondo_reg_sel}*")
 
     # -- Esegui check ---------------------------------------------------------
     st.markdown("### Esegui verifica")
@@ -312,17 +301,7 @@ if st.session_state.df_ship is not None:
         if st.button("ESEGUI VERIFICA", type="primary", use_container_width=False):
             with st.spinner("Calcolo check 474 e regolamento…"):
                 try:
-                    # Filtra i limiti al fondo del regolamento selezionato
-                    limiti_r_all = st.session_state.limiti_reg or []
-                    if fondo_reg_sel and fondo_reg_sel != "(tutti)":
-                        limiti_r = [
-                            lim for lim in limiti_r_all
-                            if _fondo_da_sezione(
-                                lim.get("sezione", lim.get("articolo", ""))
-                            ) == fondo_reg_sel
-                        ]
-                    else:
-                        limiti_r = limiti_r_all
+                    limiti_r = st.session_state.limiti_reg or []
 
                     info_f = st.session_state.info_fondo or {}
                     basi = st.session_state.basi or Basi()
@@ -458,4 +437,4 @@ else:
     st.info("Carica il portafoglio del fondo dalla sidebar per iniziare.")
 
 st.divider()
-st.caption("Verifica Limiti UL - Circolare ISVAP 474/D - v2.1")
+st.caption("Verifica Limiti UL - Circolare ISVAP 474/D - v2.2")
