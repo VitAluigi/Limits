@@ -181,10 +181,8 @@ if st.session_state.df_ship is not None:
         nome_fondo = "Fondo"
 
     # -- Selezione fondo del regolamento (se PDF con più fondi) ------------------
-# -- Selezione fondo del regolamento ------------------------------------
     limiti_tutti = st.session_state.limiti_reg or []
-    fondo_reg_sel = "(tutti)"
-
+    fondo_reg_sel = None
     if limiti_tutti:
         def _fondo_da_sezione(s: str) -> str:
             parts = str(s).rsplit(" - ", 1)
@@ -194,32 +192,25 @@ if st.session_state.df_ship is not None:
             _fondo_da_sezione(lim.get("sezione", lim.get("articolo", "")))
             for lim in limiti_tutti
         ))
+        fondi_reg_options = fondi_reg if fondi_reg else ["(tutti)"]
 
-        fondi_reg_options = ["(tutti)"] + fondi_reg if fondi_reg else ["(tutti)"]
-
-        st.markdown("### Fondo del regolamento da verificare")
-        fondo_reg_sel = st.selectbox(
-            "Seleziona il fondo da applicare:",
-            fondi_reg_options,
-            index=0,
-            key="sel_fondo_reg",
-        )
-
-        if fondo_reg_sel == "(tutti)":
-            n_filtrati = len(limiti_tutti)
-        else:
+        if len(fondi_reg_options) > 1:
+            st.markdown("### Fondo del regolamento da verificare")
+            fondo_reg_sel = st.selectbox(
+                "Il regolamento contiene limiti per più fondi interni. Seleziona quello da applicare:",
+                fondi_reg_options,
+                key="sel_fondo_reg",
+            )
             n_filtrati = sum(
                 1 for lim in limiti_tutti
-                if _fondo_da_sezione(
-                    lim.get("sezione", lim.get("articolo", ""))
-                ) == fondo_reg_sel
+                if _fondo_da_sezione(lim.get("sezione", lim.get("articolo", ""))) == fondo_reg_sel
             )
-
-        st.caption(f"Verranno applicati **{n_filtrati}** limiti di *{fondo_reg_sel}*")
-            
+            st.caption(f"Verranno applicati **{n_filtrati}** limiti di *{fondo_reg_sel}*")
+        else:
+            fondo_reg_sel = fondi_reg_options[0] if fondi_reg_options else None
 
     # -- Esegui check --------------------------------------------------------
-st.markdown("### Esegui verifica")
+    st.markdown("### Esegui verifica")
 
     if len(df_sel) == 0:
         st.warning("Nessuna posizione nel perimetro selezionato.")
