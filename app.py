@@ -220,7 +220,28 @@ if st.session_state.df_ship is not None:
     # -- Basi di calcolo dal rendiconto ---------------------------------------
     basi = Basi()
     rend = st.session_state.rendiconto or {}
-    info_rend = match_fondo(nome_fondo, rend) if rend else None
+
+    if rend:
+        nomi_rend = list(rend.keys())
+        auto_match = match_fondo(nome_fondo, rend)
+        # default = fondo abbinato in automatico (se trovato), altrimenti "(automatico)"
+        opzioni = ["(automatico)"] + nomi_rend
+        default_idx = (nomi_rend.index(auto_match["nome_fondo"]) + 1) if auto_match else 0
+
+        st.markdown("### Fondo del rendiconto (basi di calcolo)")
+        sel_rend = st.selectbox(
+            "Seleziona il fondo del rendiconto da usare come base "
+            "(«(automatico)» = abbinamento al fondo selezionato nel SHIP):",
+            opzioni, index=default_idx, key="sel_fondo_rend",
+        )
+
+        if sel_rend == "(automatico)":
+            info_rend = auto_match
+        else:
+            info_rend = rend.get(sel_rend)
+    else:
+        info_rend = None
+
     if info_rend:
         basi = Basi(totale_attivita=info_rend["totale_attivita"],
                     nav=info_rend["nav"])
@@ -235,7 +256,8 @@ if st.session_state.df_ship is not None:
     elif rend:
         st.warning(
             f"Nessun fondo del rendiconto abbinato a «{nome_fondo}»: "
-            f"i check useranno il totale SHIP come base."
+            f"seleziona manualmente il fondo qui sopra, oppure i check useranno "
+            f"il totale SHIP come base."
         )
     st.session_state.basi = basi
 
