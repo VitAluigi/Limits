@@ -158,8 +158,7 @@ if st.session_state.df_ship is not None:
     df_sel = df_work.reset_index(drop=True)
 
     # KPI
-    col_val_kpi = ("valore_mercato" if "valore_mercato" in df_sel.columns
-                   else "valore_bilancio" if "valore_bilancio" in df_sel.columns else None)
+    col_val_kpi = "valore_bilancio" if "valore_bilancio" in df_sel.columns else None
     excl_kpi = df_sel.get("escluso_calcolo", pd.Series(False, index=df_sel.index))
     tot_kpi = df_sel.loc[~excl_kpi, col_val_kpi].sum() if col_val_kpi else 0
 
@@ -182,6 +181,36 @@ if st.session_state.df_ship is not None:
     if nome_fondo in ("(tutti)", ""):
         nome_fondo = "Fondo"
 
+    # -- Selezione fondo del regolamento (se PDF con più fondi) ------------------
+    limiti_tutti = st.session_state.limiti_reg or []
+    fondo_reg_sel = None
+    if limiti_tutti:
+        # Estrae il nome del fondo dal campo sezione: "Art. X - ... - Nome Fondo"
+        def _fondo_da_sezione(s: str) -> str:
+            parts = str(s).rsplit(" - ", 1)
+            return parts[-1].strip() if len(parts) > 1 else "(tutti)"
+
+        fondi_reg = sorted(set(
+            _fondo_da_sezione(lim.get("sezione", lim.get("articolo", "")))
+            for lim in limiti_tutti
+        ))
+        fondi_reg_options = fondi_reg if fondi_reg else ["(tutti)"]
+
+        if len(fondi_reg_options) > 1:
+            st.markdown("### Fondo del regolamento da verificare")
+            fondo_reg_sel = st.selectbox(
+                "Il regolamento contiene limiti per più fondi interni. Seleziona quello da applicare:",
+                fondi_reg_options,
+                key="sel_fondo_reg",
+            )
+            n_filtrati = sum(
+                1 for lim in limiti_tutti
+                if _fondo_da_sezione(lim.get("sezione", lim.get("articolo", ""))) == fondo_reg_sel
+            )
+            st.caption(f"Verranno applicati **{n_filtrati}** limiti di *{fondo_reg_sel}*")
+        else:
+            fondo_reg_sel = fondi_reg_options[0] if fondi_reg_options else None
+
     # -- Esegui check --------------------------------------------------------
     st.markdown("### Esegui verifica")
 
@@ -191,8 +220,18 @@ if st.session_state.df_ship is not None:
         if st.button("ESEGUI VERIFICA", type="primary", use_container_width=False):
             with st.spinner("Calcolo check 474 e regolamento…"):
                 try:
-                    limiti_r = st.session_state.limiti_reg or []
-                    info_f   = st.session_state.info_fondo or {}
+                    # Filtra i limiti al solo fondo del regolamento selezionato
+                    limiti_r_all = st.session_state.limiti_reg or []
+                    if fondo_reg_sel and fondo_reg_sel != "(tutti)":
+                        limiti_r = [
+                            lim for lim in limiti_r_all
+                            if _fondo_da_sezione(
+                                lim.get("sezione", lim.get("articolo", ""))
+                            ) == fondo_reg_sel
+                        ]
+                    else:
+                        limiti_r = limiti_r_all
+                    info_f = st.session_state.info_fondo or {}
 
                     results_474 = esegui_tutti_check(
                         df_sel,
