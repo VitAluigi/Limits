@@ -181,33 +181,67 @@ if st.session_state.df_ship is not None:
         nome_fondo = "Fondo"
 
     # -- Selezione fondo del regolamento (se PDF con più fondi) ------------------
+    # -- Selezione fondo del regolamento ------------------
     limiti_tutti = st.session_state.limiti_reg or []
-    fondo_reg_sel = None
+    fondo_reg_sel = "(tutti)"
+
     if limiti_tutti:
         def _fondo_da_sezione(s: str) -> str:
             parts = str(s).rsplit(" - ", 1)
             return parts[-1].strip() if len(parts) > 1 else "(tutti)"
 
-        fondi_reg = sorted(set(
-            _fondo_da_sezione(lim.get("sezione", lim.get("articolo", "")))
-            for lim in limiti_tutti
-        ))
-        fondi_reg_options = fondi_reg if fondi_reg else ["(tutti)"]
+    # estrai fondi unici
+    fondi_reg = sorted(set(
+        _fondo_da_sezione(lim.get("sezione", lim.get("articolo", "")))
+        for lim in limiti_tutti
+    ))
 
-        if len(fondi_reg_options) > 1:
-            st.markdown("### Fondo del regolamento da verificare")
-            fondo_reg_sel = st.selectbox(
-                "Il regolamento contiene limiti per più fondi interni. Seleziona quello da applicare:",
-                fondi_reg_options,
-                key="sel_fondo_reg",
-            )
-            n_filtrati = sum(
-                1 for lim in limiti_tutti
-                if _fondo_da_sezione(lim.get("sezione", lim.get("articolo", ""))) == fondo_reg_sel
-            )
-            st.caption(f"Verranno applicati **{n_filtrati}** limiti di *{fondo_reg_sel}*")
-        else:
-            fondo_reg_sel = fondi_reg_options[0] if fondi_reg_options else None
+    # aggiungi sempre "(tutti)"
+    fondi_reg_options = ["(tutti)"] + fondi_reg if fondi_reg else ["(tutti)"]
+
+    # selezione
+    st.markdown("### Fondo del regolamento da verificare")
+    fondo_reg_sel = st.selectbox(
+        "Seleziona il fondo da applicare:",
+        fondi_reg_options,
+        index=0,
+        key="sel_fondo_reg",
+    )
+
+    # conteggio limiti applicati
+    if fondo_reg_sel == "(tutti)":
+        n_filtrati = len(limiti_tutti)
+    else:
+        n_filtrati = sum(
+            1 for lim in limiti_tutti
+            if _fondo_da_sezione(lim.get("sezione", lim.get("articolo", ""))) == fondo_reg_sel
+        )
+
+    st.caption(f"Verranno applicati **{n_filtrati}** limiti di *{fondo_reg_sel}*")
+
+
+    # -- Filtri dataframe ------------------
+    for i, (col_name, label) in enumerate(FILTRI):
+        if col_name not in df_work.columns:
+            continue
+
+        valori = sorted(df_work[col_name].dropna().astype(str).unique().tolist())
+        if not valori:
+        continue
+
+        sel = filter_cols[i].selectbox(
+            label,
+            ["(tutti)"] + valori,
+            key=f"f_{col_name}"
+        )
+
+        selezioni[col_name] = sel
+
+        if sel != "(tutti)":
+            df_work = df_work[df_work[col_name].astype(str) == sel]
+
+    df_sel = df_work.reset_index(drop=True)
+            
 
     # -- Esegui check --------------------------------------------------------
     st.markdown("### Esegui verifica")
