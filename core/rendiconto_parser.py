@@ -5,20 +5,24 @@ Situazione Patrimoniale) i valori di base per ciascun fondo:
 
   - totale_attivita : "TOTALE ATTIVITA'"  -> base per i limiti 474 espressi come
                       "% del totale delle attività assegnate al fondo"
-  - nav             : Valore complessivo netto del fondo = Totale attività - Totale
-                      passività -> base per i limiti espressi come "% del valore
-                      corrente / complessivo del fondo" e per i comparti del regolamento
+  - nav             : Valore complessivo netto del fondo -> base per i limiti
+                      espressi come "% del valore corrente / complessivo del fondo"
+                      e per i comparti del regolamento.
 
-Il NAV è ricavato per differenza (att - pass) perché in alcuni fondi le colonne
-del PDF risultano disallineate (la riga "VALORE COMPLESSIVO NETTO" non è affidabile
-nell'ordine corrente/precedente). La riconciliazione att - pass è invece robusta.
+Robustezza:
+  * PDF SCANSIONATI (senza layer di testo): fallback OCR via tesseract (lingua ita).
+  * LAYOUT A COLONNE / OCR: gli importi possono trovarsi su righe successive
+    all'etichetta -> _first_euro_after guarda anche le righe seguenti.
+  * NAV: si legge preferibilmente dalla riga "VALORE COMPLESSIVO NETTO";
+    se assente (OCR che salta la riga) si ricava per differenza (att - pass).
 """
 
 from __future__ import annotations
+import os
 import re
 import fitz  # PyMuPDF
 
-# Confine fra i blocchi (sia Situazione Patrimoniale sia Sezione Reddituale iniziano così)
+# Confine fra i blocchi (sia Situazione Patrimoniale sia Sezione Reddituale)
 _BOUND = re.compile(r"RENDICONTO DEL FONDO INTERNO", re.IGNORECASE)
 
 # Header del blocco patrimoniale: cattura nome fondo e data
@@ -31,6 +35,42 @@ _HDR = re.compile(
 _NUM = re.compile(r"\d{1,3}(?:\.\d{3})*,\d{2}")
 
 
+# ---------------------------------------------------------------------------
+# OCR fallback
+# ---------------------------------------------------------------------------
+
+def _tessdata() -> str | None:
+    if os.environ.get("TESSDATA_PREFIX"):
+        return os.environ["TESSDATA_PREFIX"]
+    for p in (
+        "/usr/share/tesseract-ocr/5/tessdata",
+        "/usr/share/tesseract-ocr/4.00/tessdata",
+        "/usr/share/tessdata",
+    ):
+        if os.path.isdir(p):
+            return p
+    return None
+
+
+def _page_text(page) -> str:
+    t = page.get_text("text")
+    if len(t.strip()) >= 20:
+        return t
+    try:
+        kw = dict(language="ita", dpi=200, full=True)
+        td = _tessdata()
+        if td:
+            kw["tessdata"] = td
+        tp = page.get_textpage_ocr(**kw)
+        return page.get_text("text", textpage=tp)
+    except Exception:
+        return t
+
+
+# ---------------------------------------------------------------------------
+# Estrazione importi
+# ---------------------------------------------------------------------------
+
 def _euros(line: str) -> list[float]:
     """Valori monetari della riga, esclusi i '100,00' (percentuali di totale)."""
     out = []
@@ -41,15 +81,21 @@ def _euros(line: str) -> list[float]:
     return out
 
 
-def _first_euro_after(block: str, label_prefix: str) -> float | None:
-    """Primo importo (= colonna periodo corrente) sulla riga che inizia con label_prefix."""
+def _first_euro_after(block: str, label_prefix: str, lookahead: int = 4) -> float | None:
+    """
+    Primo importo (= colonna periodo corrente) della riga che inizia con
+    label_prefix; se sulla riga dell'etichetta non ci sono numeri (layout a
+    colonne / OCR), cerca nelle righe immediatamente successive.
+    """
     label_prefix = label_prefix.upper()
-    for raw in block.splitlines():
+    lines = block.splitlines()
+    for i, raw in enumerate(lines):
         s = raw.strip().upper()
         if s.startswith(label_prefix):
-            vals = _euros(raw)
-            if vals:
-                return vals[0]
+            for j in range(i, min(i + 1 + lookahead, len(lines))):
+                vals = _euros(lines[j])
+                if vals:
+                    return vals[0]
     return None
 
 
@@ -59,7 +105,7 @@ def parse_rendiconto(pdf_bytes: bytes) -> dict[str, dict]:
     In caso di nomi duplicati mantiene la prima occorrenza.
     """
     doc = fitz.open(stream=pdf_bytes, filetype="pdf")
-    text = "\n".join(page.get_text("text") for page in doc)
+    text = "\n".join(_page_text(page) for page in doc)
     doc.close()
 
     bounds = [m.start() for m in _BOUND.finditer(text)] + [len(text)]
@@ -72,15 +118,17 @@ def parse_rendiconto(pdf_bytes: bytes) -> dict[str, dict]:
             # blocco "SEZIONE REDDITUALE" o altro: ignorato
             continue
 
-        nome = re.sub(r"\s+", " ", m.group(1)).strip()
+        nome = re.sub(r"\s+", " ", m.group(1)).strip().strip("-– ").strip()
         data = m.group(2).strip()
 
         tot = _first_euro_after(block, "TOTALE ATTIVIT")
-        pas = _first_euro_after(block, "TOTALE PASSIVIT")
         if tot is None:
             continue
 
-        nav = tot - abs(pas) if pas is not None else None
+        nav = _first_euro_after(block, "VALORE COMPLESSIVO NETTO")
+        pas = _first_euro_after(block, "TOTALE PASSIVIT")
+        if nav is None and pas is not None:
+            nav = tot - abs(pas)
 
         if nome and nome not in fondi:
             fondi[nome] = {
