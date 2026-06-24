@@ -8,7 +8,7 @@ import re
 import anthropic
 import streamlit as st
 
-MODEL = "claude-opus-4-6"
+MODEL = "claude-sonnet-4-6"
 
 
 def _client() -> anthropic.Anthropic:
