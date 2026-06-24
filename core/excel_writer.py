@@ -133,15 +133,28 @@ def _write_check_sheet(ws, results: list[CheckResult], title: str,
 def _write_db_sheet(ws, df: pd.DataFrame):
     if df.empty:
         return
+    # Header: colora in arancione le colonne calcolate (flag interni)
+    FLAG_COLS = {"escluso_calcolo", "is_listed", "rating_norm",
+                 "rating_below_bb", "rating_sp", "rating_fitch",
+                 "rating_moodys", "rating_ifrs9"}
+    C_FLAG = "F4B942"
     for j, col in enumerate(df.columns, 1):
         c = ws.cell(1, j, str(col))
-        c.font = Font(name=FONT_BODY, size=SZ, bold=True)
+        if col in FLAG_COLS:
+            c.font = Font(name=FONT_BODY, size=SZ, bold=True, color=C_WHITE)
+            c.fill = PatternFill("solid", start_color=C_FLAG)
+        else:
+            c.font = Font(name=FONT_BODY, size=SZ, bold=True)
         c.alignment = Alignment(vertical="center")
     for i, row in enumerate(df.itertuples(index=False), 2):
         for j, val in enumerate(row, 1):
+            col_name = df.columns[j - 1]
             c = ws.cell(i, j, val)
             c.font = Font(name=FONT_BODY, size=SZ)
             c.alignment = Alignment(vertical="center")
+            # Evidenzia le righe escluse dal denominatore
+            if col_name == "escluso_calcolo" and val is True:
+                c.fill = PatternFill("solid", start_color="FFE0B2")
     for col in ws.columns:
         w = 8
         for cell in col:
@@ -314,8 +327,11 @@ def genera_excel(
 
     # -- DB GREZZO -------------------------------------------------------------
     ws_db = wb.create_sheet("DB_Grezzo")
-    cols_show = [c for c in df_portafoglio.columns if c != "escluso_calcolo"]
-    _write_db_sheet(ws_db, df_portafoglio[cols_show].head(2000))
+    # Mantieni escluso_calcolo per permettere la riconciliazione manuale:
+    # i derivati OTC/repo (escluso_calcolo=True) sono non-listed per definizione
+    # ma NON rientrano nel limite 474/D sui titoli non quotati.
+    # L'utente può filtrarli per riconciliare i propri calcoli manuali.
+    _write_db_sheet(ws_db, df_portafoglio.head(2000))
 
     # -- LIMITI REGOLAMENTO RAW ------------------------------------------------
     if limiti_regolamento:
